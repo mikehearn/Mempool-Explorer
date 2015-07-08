@@ -6,10 +6,11 @@ import javafx.application.Platform
 import javafx.beans.binding.Bindings.createStringBinding
 import javafx.beans.binding.Bindings.format
 import javafx.beans.binding.Bindings.size
-import javafx.beans.binding.StringBinding
 import javafx.beans.property.SimpleIntegerProperty
 import javafx.beans.property.SimpleLongProperty
+import javafx.beans.value.ObservableValue
 import javafx.collections.FXCollections
+import javafx.collections.transformation.SortedList
 import javafx.fxml.FXML
 import javafx.fxml.FXMLLoader
 import javafx.scene.Scene
@@ -26,16 +27,16 @@ import org.bitcoinj.core.*
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.store.MemoryBlockStore
 import org.bitcoinj.utils.BriefLogFormatter
+import org.bitcoinj.utils.BtcAutoFormat
 import org.bitcoinj.utils.BtcFormat
-import org.bitcoinj.utils.DaemonThreadFactory
 import org.bitcoinj.utils.Threading
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.BitSet
+import java.util.Timer
 import java.util.concurrent.Callable
 import java.util.concurrent.Executor
-import java.util.concurrent.ScheduledThreadPoolExecutor
-import java.util.concurrent.TimeUnit
+import kotlin.concurrent.schedule
 import kotlin.properties.Delegates
 
 data class MemPoolEntry(val fee: Long, val msgSize: Int, val hash: Sha256Hash) {
@@ -55,26 +56,26 @@ class UIController {
     public fun init(app: App) {
         val btcFormatter = BtcFormat.getInstance()
 
-        val col1 = table.getColumns()[0] as TableColumn<MemPoolEntry, String>
-        col1.setCellValueFactory { features ->
-            object : StringBinding() {
-                override fun computeValue(): String {
-                    val fee = features.getValue().fee
-                    return if (fee == -1L) "•" else btcFormatter.format(Coin.valueOf(fee))
+        val col1 = table.getColumns()[0] as TableColumn<MemPoolEntry, Long>
+        col1.setCellValueFactory { features -> SimpleLongProperty(features.getValue().fee) as ObservableValue<Long> }
+        col1.setCellFactory { column ->
+            object : TextFieldTableCell<MemPoolEntry, Long>() {
+                override fun updateItem(item: Long?, empty: Boolean) {
+                    super.updateItem(item, empty)
+                    if (empty)
+                        setText("")
+                    else if (item!! == -1L)
+                        setText("•")
+                    else
+                        setText(btcFormatter.format(Coin.valueOf(item!!)))
                 }
             }
         }
         col1.setStyle("-fx-alignment: CENTER")
 
-        val col2 = table.getColumns()[1] as TableColumn<MemPoolEntry, String>
-        col2.setCellValueFactory { features ->
-            object : StringBinding() {
-                override fun computeValue(): String {
-                    val fee = features.getValue().feePerByte
-                    return if (fee == -1L) "•" else btcFormatter.format(Coin.valueOf(fee))
-                }
-            }
-        }
+        val col2 = table.getColumns()[1] as TableColumn<MemPoolEntry, Long>
+        col2.setCellValueFactory { features -> SimpleLongProperty(features.getValue().feePerByte) as ObservableValue<Long> }
+        col2.setCellFactory(col1.getCellFactory())
         col2.setStyle("-fx-alignment: CENTER")
 
         val col3 = table.getColumns()[2] as TableColumn<MemPoolEntry, Sha256Hash>
@@ -83,17 +84,6 @@ class UIController {
             object : TextFieldTableCell<MemPoolEntry, Sha256Hash>() {
                 init {
                     setOnMouseClicked { ev ->
-                        app.state.useWith {
-                            val hash = getItem()
-                            log.info("TX ${hash}:")
-                            val tx = mapMemPool[hash]
-                            for (i in tx.getInputs().indices) {
-                                val inp = tx.getInputs()[i]
-                                log.info("   $i: ${inp.getOutpoint()}")
-                                val aw = mapAwaiting[inp.getOutpoint()] ?: continue
-                                log.info("       $aw")
-                            }
-                        }
                         if (ev.getClickCount() == 2)
                             app.getHostServices().showDocument("https://blockchain.info/tx/${getText()}")
                     }
@@ -102,6 +92,9 @@ class UIController {
         }
 
         app.uiState.useWith {
+            val sl = SortedList(mempool)
+            sl.comparatorProperty() bind table.comparatorProperty()
+            table.setItems(sl)
             numTxnsLabel.textProperty() bind format(numTxnsLabel.getText(), size(mempool))
             numTxnsInLastBlockLabel.textProperty() bind format(numTxnsInLastBlockLabel.getText(), numTxnsInLastBlock)
 
@@ -134,9 +127,8 @@ class App : Application() {
     val state = ThreadBox(object {
         val mapMemPool = hashMapOf<Sha256Hash, Transaction>()
         val mapAwaiting = hashMapOf<TransactionOutPoint, AwaitingInput>()
+        var lookupImmediately = false
     })
-
-    val scheduler = ScheduledThreadPoolExecutor(1, DaemonThreadFactory("utxo lookup thread"))
 
     override fun start(stage: Stage) {
         BriefLogFormatter.init()
@@ -144,9 +136,6 @@ class App : Application() {
         val loader = FXMLLoader(javaClass<App>().getResource("main.fxml"))
         val scene = Scene(loader.load())
         controller = loader.getController()
-        uiState.useWith {
-            controller.table.setItems(mempool)
-        }
         controller.init(this)
         stage.setScene(scene)
         stage.setTitle("Mempool Explorer")
@@ -176,6 +165,7 @@ class App : Application() {
             pg = PeerGroup(ctx, blockchain)
 
             //pg.addAddress(InetAddress.getByName("plan99.net"))
+            //pg.setUseLocalhostPeerWhenPossible(false)
 
             pg.setFastCatchupTimeSecs(now)
             pg.setUserAgent("Mempool Explorer", "1.0")
@@ -190,9 +180,10 @@ class App : Application() {
             // After waiting 5 seconds to give us time to fetch the mempool and fully resolve from that,
             // kick off UTXO lookups every three seconds, if needed (to avoid putting excessive work on
             // the remote peer).
-            scheduler.scheduleWithFixedDelay(Runnable {
+            Timer().schedule(5000) {
                 doUTXOLookups()
-            }, 15, 15, TimeUnit.SECONDS)
+                state.useWith { lookupImmediately = true }
+            }
 
             // Respond to network events:
             peer.addEventListener(object : AbstractPeerEventListener() {
@@ -266,10 +257,15 @@ class App : Application() {
                     mempool.size() - 1
                 }
                 val pfd = PartialFeeData(totalOutValue, inputValues, entry, uiListIndex)
+                val toLookup = arrayListOf<TransactionOutPoint>()
                 for (i in inputValues.indices) {
                     if (inputValues[i] != -1L) continue
-                    mapAwaiting[inputs[i].getOutpoint()] = AwaitingInput(i, pfd)
+                    val op = inputs[i].getOutpoint()
+                    mapAwaiting[op] = AwaitingInput(i, pfd)
+                    toLookup add op
                 }
+                if (lookupImmediately)
+                    doUTXOLookup(toLookup)
             }
 
             // For each output in this transaction, see if we can connect it to a waiting input and satisfy any
@@ -305,22 +301,23 @@ class App : Application() {
                 val chunk = mapAwaiting.entrySet().filterNot { it.value.utxoQueryDone }.take(5000)
                 chunk.forEach { it.value.utxoQueryDone = true }
                 val query = chunk.map { it.key }
-
                 if (query.isEmpty())
                     break
+                doUTXOLookup(query)
+            }
+        }
+    }
 
-                val promise = pg.getDownloadPeer().getUTXOs(query, false).toPromise()
+    private fun doUTXOLookup(query: List<TransactionOutPoint>) {
+        val promise = pg.getDownloadPeer().getUTXOs(query, false).toPromise()
 
-                promise success { results ->
-                    val bitset = BitSet.valueOf(results.getHitMap())
-                    log.info("Found ${results.getOutputs().size()} UTXOs from query of ${query.size()} outpoints")
-                    var cursor = 0
-                    for (i in query.indices) {
-                        if (bitset.get(i)) {
-                            maybeFinishWithOutput(query[i], results.getOutputs()[cursor].getValue().value)
-                            cursor++
-                        }
-                    }
+        promise success { results ->
+            val bitset = BitSet.valueOf(results.getHitMap())
+            var cursor = 0
+            for (i in query.indices) {
+                if (bitset.get(i)) {
+                    maybeFinishWithOutput(query[i], results.getOutputs()[cursor].getValue().value)
+                    cursor++
                 }
             }
         }
