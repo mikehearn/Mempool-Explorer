@@ -10,18 +10,18 @@
    <center>
       <TabPane BorderPane.alignment="CENTER">
          <tabs>
-            <Tab text="Transactions">
+            <Tab closable="false" text="Transactions">
                <content>
                   <TableView fx:id="table" prefHeight="200.0" prefWidth="200.0">
                     <columns>
-                      <TableColumn editable="false" prefWidth="75.0" text="Fee" />
-                        <TableColumn prefWidth="90.0" text="Fee / byte" />
-                      <TableColumn editable="false" maxWidth="1.7976931348623157E308" prefWidth="485.0" text="Hash" />
+                      <TableColumn editable="false" minWidth="-1.0" prefWidth="150.0" text="Fee" />
+                      <TableColumn minWidth="-1.0" prefWidth="150.0" text="Fee / byte" />
+                      <TableColumn editable="false" maxWidth="1.7976931348623157E308" minWidth="500.0" prefWidth="-1.0" text="Hash" />
                     </columns>
                   </TableView>
                </content>
             </Tab>
-            <Tab text="Graphs">
+            <Tab closable="false" text="Graphs">
                <content>
                   <StackedAreaChart fx:id="mempoolGraph" legendVisible="false">
                     <xAxis>
