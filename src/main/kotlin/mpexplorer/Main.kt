@@ -8,17 +8,15 @@ import javafx.beans.binding.Bindings.format
 import javafx.beans.binding.Bindings.size
 import javafx.beans.property.SimpleIntegerProperty
 import javafx.beans.property.SimpleLongProperty
-import javafx.beans.value.ObservableValue
 import javafx.collections.FXCollections
-import javafx.collections.transformation.SortedList
+import javafx.event.ActionEvent
 import javafx.fxml.FXML
 import javafx.fxml.FXMLLoader
 import javafx.scene.Scene
-import javafx.scene.chart.StackedAreaChart
 import javafx.scene.control.Label
+import javafx.scene.control.Slider
 import javafx.scene.control.TableColumn
 import javafx.scene.control.TableView
-import javafx.scene.control.cell.PropertyValueFactory
 import javafx.scene.control.cell.TextFieldTableCell
 import javafx.stage.Stage
 import nl.komponents.kovenant.Kovenant
@@ -27,7 +25,6 @@ import org.bitcoinj.core.*
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.store.MemoryBlockStore
 import org.bitcoinj.utils.BriefLogFormatter
-import org.bitcoinj.utils.BtcAutoFormat
 import org.bitcoinj.utils.BtcFormat
 import org.bitcoinj.utils.Threading
 import org.slf4j.LoggerFactory
@@ -39,7 +36,14 @@ import java.util.concurrent.Executor
 import kotlin.concurrent.schedule
 import kotlin.properties.Delegates
 
-data class MemPoolEntry(val fee: Long, val msgSize: Int, val msgSizeForPriority: Int, val priority: Long, val hash: Sha256Hash) {
+data class MemPoolEntry(
+        val fee: Long,
+        val msgSize: Int,
+        val msgSizeForPriority: Int,
+        val priority: Long,
+        val hash: Sha256Hash,
+        val height: Int = 0
+) {
     val feePerByte: Long get() = if (fee == -1L) -1L else fee / msgSize
 }
 
@@ -58,51 +62,26 @@ class FeeColumn(val formatter: BtcFormat) : TextFieldTableCell<MemPoolEntry, Lon
 class UIController {
     val log = LoggerFactory.getLogger(javaClass<UIController>())
 
-    FXML public var table: TableView<MemPoolEntry> = later()
+    FXML public var mempoolTable: TableView<MemPoolEntry> = later()
+    FXML public var blockMakerTable: TableView<MemPoolEntry> = later()
     FXML public var numTxnsLabel: Label = later()
     FXML public var numTxnsInLastBlockLabel: Label = later()
     FXML public var mempoolBytesLabel: Label = later()
-    FXML public var mempoolGraph: StackedAreaChart<Number, Number> = later()
+
+    FXML public var blockSizeSlider: Slider = later()
+    FXML public var priorityAreaSizeSlider: Slider = later()
+    FXML public var blockSizeLabel: Label = later()
+    FXML public var priorityAreaSizeLabel: Label = later()
+
+    var blockMaker: BlockMaker = later()
 
     suppress("UNCHECKED_CAST")
     public fun init(app: App) {
-        val mbtc = BtcFormat.getMilliInstance()
-        val ubtc = BtcFormat.getMicroInstance()
+        configureTable(mempoolTable)
+        configureTable(blockMakerTable)
 
-        // Fee
-        val col1 = table.getColumns()[0] as TableColumn<MemPoolEntry, Long>
-        col1.setCellValueFactory { features -> SimpleLongProperty(features.getValue().fee) as ObservableValue<Long> }
-        col1.setCellFactory { FeeColumn(mbtc) }
-        col1.setStyle("-fx-alignment: CENTER")
-
-        // Fee per byte
-        val col2 = table.getColumns()[1] as TableColumn<MemPoolEntry, Long>
-        col2.setCellValueFactory { features -> SimpleLongProperty(features.getValue().feePerByte) as ObservableValue<Long> }
-        col2.setCellFactory { FeeColumn(ubtc) }
-        col2.setStyle("-fx-alignment: CENTER")
-
-        // Priority
-        val col3 = table.getColumns()[2] as TableColumn<MemPoolEntry, Long>
-        col3.setCellValueFactory { features -> SimpleLongProperty(features.getValue().priority) as ObservableValue<Long> }
-        col3.setCellFactory { column ->
-            object : TextFieldTableCell<MemPoolEntry, Long>() {
-                override fun updateItem(item: Long?, empty: Boolean) {
-                    super.updateItem(item, empty)
-                    if (empty)
-                        setText("")
-                    else if (item!! == -1L)
-                        setText("•")
-                    else
-                        setText(item.toString())
-                }
-            }
-        }
-        col3.setStyle("-fx-alignment: CENTER")
-
-        // Hash
-        val col4 = table.getColumns()[3] as TableColumn<MemPoolEntry, Sha256Hash>
-        col4.setCellValueFactory(PropertyValueFactory("hash"))
-        col4.setCellFactory { column ->
+        val hashCol = mempoolTable.getColumns()[5] as TableColumn<MemPoolEntry, Sha256Hash>
+        hashCol.setCellFactory { column ->
             object : TextFieldTableCell<MemPoolEntry, Sha256Hash>() {
                 init {
                     setOnMouseClicked { ev ->
@@ -114,9 +93,10 @@ class UIController {
         }
 
         app.uiState.useWith {
-            val sl = SortedList(mempool)
-            sl.comparatorProperty() bind table.comparatorProperty()
-            table.setItems(sl)
+            blockMaker = BlockMaker(mempool)
+            wireSorted(mempoolTable, mempool)
+            wireSorted(blockMakerTable, blockMaker.contents)
+
             numTxnsLabel.textProperty() bind format(numTxnsLabel.getText(), size(mempool))
             numTxnsInLastBlockLabel.textProperty() bind format(numTxnsInLastBlockLabel.getText(), numTxnsInLastBlock)
 
@@ -124,6 +104,30 @@ class UIController {
                 createStringBinding(Callable { Humanize.binaryPrefix(mempoolBytes.get()) }, mempoolBytes)
             )
         }
+
+        // Wire up the block maker sliders:
+        // - Priority area cannot be bigger than the block size itself
+        priorityAreaSizeSlider.maxProperty() bind blockSizeSlider.valueProperty()
+        // - Block size label shows size in humanized bytes
+        blockSizeLabel.textProperty() bind createStringBinding(Callable {
+            Humanize.binaryPrefix(blockSizeSlider.getValue().toInt())
+        }, blockSizeSlider.valueProperty())
+        // - Priority area size label shows size in humanized bytes
+        priorityAreaSizeLabel.textProperty() bind createStringBinding(Callable {
+            Humanize.binaryPrefix(priorityAreaSizeSlider.getValue().toInt())
+        }, priorityAreaSizeSlider.valueProperty())
+        // - Editing either slider results in a recalculation of the block
+        blockSizeSlider.valueProperty().addListener { o -> update() }
+        priorityAreaSizeSlider.valueProperty().addListener { o -> update() }
+    }
+
+    FXML
+    public fun onCalcPressed(ev: ActionEvent) {
+        update()
+    }
+
+    private fun update() {
+        blockMaker.calculate(blockSizeSlider.getValue().toInt(), priorityAreaSizeSlider.getValue().toInt())
     }
 }
 
@@ -155,6 +159,7 @@ class App : Application() {
     // Put in a box just in case we want to shift calculations off the UI thread.
     val state = ThreadBox(object {
         val mapMemPool = hashMapOf<Sha256Hash, Transaction>()
+        val mapEntries = hashMapOf<Sha256Hash, Int>()  // index in mempool array
         val mapAwaiting = hashMapOf<TransactionOutPoint, AwaitingInput>()
         var lookupImmediately = false
     })
@@ -168,6 +173,7 @@ class App : Application() {
         controller.init(this)
         stage.setScene(scene)
         stage.setTitle("Mempool Explorer")
+        stage.setMaximized(true)
         stage.show()
 
         // Make async run callbacks on the UI thread by default.
@@ -193,6 +199,37 @@ class App : Application() {
             val blockchain = BlockChain(ctx, store)
             pg = PeerGroup(ctx, blockchain)
 
+            blockchain.addListener(object : AbstractBlockChainListener() {
+                var sizeOfLastBlock: Long = 0L
+                var numTxns: Int = 0
+
+                override fun receiveFromBlock(tx: Transaction, block: StoredBlock, blockType: AbstractBlockChain.NewBlockType, relativityOffset: Int) {
+                    if (tx.isCoinBase()) return
+                    if (blockType != AbstractBlockChain.NewBlockType.BEST_CHAIN) return
+                    sizeOfLastBlock += tx.getMessageSize()
+                    numTxns++
+                    val height = block.getHeight()
+                    uiState.useWith {
+                        state.useWith {
+                            val index: Int? = mapEntries[tx.getHash()]
+                            if (index != null)
+                                mempool[index] = mempool[index].copy(height = height)
+                        }
+                    }
+                }
+
+                override fun notifyNewBestBlock(block: StoredBlock) {
+                    val size = sizeOfLastBlock
+                    val num = numTxns
+                    sizeOfLastBlock = 0L
+                    numTxns = 0
+                    uiState.useWith {
+                        mempoolBytes -= size
+                        numTxnsInLastBlock.set(num)
+                    }
+                }
+            })
+
             //pg.addAddress(InetAddress.getByName("plan99.net"))
             //pg.setUseLocalhostPeerWhenPossible(false)
 
@@ -209,27 +246,14 @@ class App : Application() {
             // Wait 5 seconds to give us time to download the full mempool and resolve internally before starting
             // to do block chain UTXO lookups.
             Timer().schedule(5000) {
-                doUTXOLookups()
                 state.useWith { lookupImmediately = true }
+                doUTXOLookups()
             }
 
             // Respond to network events:
             peer.addEventListener(object : AbstractPeerEventListener() {
                 override fun onTransaction(peer: Peer, t: Transaction) {
                     processTX(t)
-                }
-
-                override fun onBlocksDownloaded(peer: Peer, block: Block?, filteredBlock: FilteredBlock?, blocksLeft: Int) {
-                    val txns = block!!.getTransactions().toSet().filterNot { it.isCoinBase() }
-                    val size = block.getMessageSize() - Block.HEADER_SIZE - VarInt.sizeOf(txns.size().toLong())
-                    state.useWith {
-                        txns map { it.getHash() } forEach { mapMemPool.remove(it) }
-                    }
-                    uiState.useWith {
-                        mempool.removeAll(txns)
-                        mempoolBytes -= size.toLong()
-                        numTxnsInLastBlock.set(txns.size())
-                    }
                 }
             })
             peer.sendMessage(MemoryPoolMessage())
@@ -267,13 +291,15 @@ class App : Application() {
             if (!inputValues.contains(-1)) {
                 val totalInValue = inputValues.sum()
                 uiState.useWith {
-                    mempool add MemPoolEntry(
+                    val entry = MemPoolEntry(
                             fee = totalInValue - totalOutValue,
                             msgSize = msgSize,
                             msgSizeForPriority = tx.getMessageSizeForPriorityCalc(),
                             hash = tx.getHash(),
                             priority = 0
                     )
+                    mempool add entry
+                    mapEntries[tx.getHash()] = mempool.size() - 1
                 }
             } else {
                 // Otherwise, we don't have enough info yet. Register a PartialFeeData structure for later.
@@ -286,6 +312,7 @@ class App : Application() {
                 )
                 val uiListIndex = uiState.getWith {
                     mempool add entry
+                    mapEntries[tx.getHash()] = mempool.size() - 1
                     mempool.size() - 1
                 }
                 val pfd = PartialFeeData(totalOutValue, inputValues, LongArray(inputValues.size()), entry, uiListIndex)
