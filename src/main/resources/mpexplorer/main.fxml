@@ -6,7 +6,7 @@
 <?import java.lang.*?>
 <?import javafx.scene.layout.*?>
 
-<BorderPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="636.0" prefWidth="846.0" xmlns="http://javafx.com/javafx/8.0.40" xmlns:fx="http://javafx.com/fxml/1" fx:controller="mpexplorer.UIController">
+<BorderPane maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" prefHeight="636.0" prefWidth="860.0" xmlns="http://javafx.com/javafx/8.0.40" xmlns:fx="http://javafx.com/fxml/1" fx:controller="mpexplorer.UIController">
    <center>
       <TabPane BorderPane.alignment="CENTER">
          <tabs>
@@ -14,8 +14,9 @@
                <content>
                   <TableView fx:id="table" prefHeight="200.0" prefWidth="200.0">
                     <columns>
-                      <TableColumn editable="false" minWidth="-1.0" prefWidth="150.0" text="Fee" />
-                      <TableColumn minWidth="-1.0" prefWidth="150.0" text="Fee / byte" />
+                      <TableColumn editable="false" minWidth="-1.0" prefWidth="100.0" text="Fee" />
+                      <TableColumn minWidth="-1.0" prefWidth="100.0" text="Fee / byte" />
+                      <TableColumn prefWidth="150.0" text="Priority" />
                       <TableColumn editable="false" maxWidth="1.7976931348623157E308" minWidth="500.0" prefWidth="-1.0" text="Hash" />
                     </columns>
                   </TableView>

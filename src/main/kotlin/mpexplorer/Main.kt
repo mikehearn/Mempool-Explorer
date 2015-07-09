@@ -39,8 +39,20 @@ import java.util.concurrent.Executor
 import kotlin.concurrent.schedule
 import kotlin.properties.Delegates
 
-data class MemPoolEntry(val fee: Long, val msgSize: Int, val hash: Sha256Hash) {
+data class MemPoolEntry(val fee: Long, val msgSize: Int, val msgSizeForPriority: Int, val priority: Long, val hash: Sha256Hash) {
     val feePerByte: Long get() = if (fee == -1L) -1L else fee / msgSize
+}
+
+class FeeColumn(val formatter: BtcFormat) : TextFieldTableCell<MemPoolEntry, Long>() {
+    override fun updateItem(item: Long?, empty: Boolean) {
+        super.updateItem(item, empty)
+        if (empty)
+            setText("")
+        else if (item!! == -1L)
+            setText("•")
+        else
+            setText(formatter.format(Coin.valueOf(item)))
+    }
 }
 
 class UIController {
@@ -54,11 +66,25 @@ class UIController {
 
     suppress("UNCHECKED_CAST")
     public fun init(app: App) {
-        val btcFormatter = BtcFormat.getInstance()
+        val mbtc = BtcFormat.getMilliInstance()
+        val ubtc = BtcFormat.getMicroInstance()
 
+        // Fee
         val col1 = table.getColumns()[0] as TableColumn<MemPoolEntry, Long>
         col1.setCellValueFactory { features -> SimpleLongProperty(features.getValue().fee) as ObservableValue<Long> }
-        col1.setCellFactory { column ->
+        col1.setCellFactory { FeeColumn(mbtc) }
+        col1.setStyle("-fx-alignment: CENTER")
+
+        // Fee per byte
+        val col2 = table.getColumns()[1] as TableColumn<MemPoolEntry, Long>
+        col2.setCellValueFactory { features -> SimpleLongProperty(features.getValue().feePerByte) as ObservableValue<Long> }
+        col2.setCellFactory { FeeColumn(ubtc) }
+        col2.setStyle("-fx-alignment: CENTER")
+
+        // Priority
+        val col3 = table.getColumns()[2] as TableColumn<MemPoolEntry, Long>
+        col3.setCellValueFactory { features -> SimpleLongProperty(features.getValue().priority) as ObservableValue<Long> }
+        col3.setCellFactory { column ->
             object : TextFieldTableCell<MemPoolEntry, Long>() {
                 override fun updateItem(item: Long?, empty: Boolean) {
                     super.updateItem(item, empty)
@@ -67,25 +93,21 @@ class UIController {
                     else if (item!! == -1L)
                         setText("•")
                     else
-                        setText(btcFormatter.format(Coin.valueOf(item!!)))
+                        setText(item.toString())
                 }
             }
         }
-        col1.setStyle("-fx-alignment: CENTER")
+        col3.setStyle("-fx-alignment: CENTER")
 
-        val col2 = table.getColumns()[1] as TableColumn<MemPoolEntry, Long>
-        col2.setCellValueFactory { features -> SimpleLongProperty(features.getValue().feePerByte) as ObservableValue<Long> }
-        col2.setCellFactory(col1.getCellFactory())
-        col2.setStyle("-fx-alignment: CENTER")
-
-        val col3 = table.getColumns()[2] as TableColumn<MemPoolEntry, Sha256Hash>
-        col3.setCellValueFactory(PropertyValueFactory("hash"))
-        col3.setCellFactory { column ->
+        // Hash
+        val col4 = table.getColumns()[3] as TableColumn<MemPoolEntry, Sha256Hash>
+        col4.setCellValueFactory(PropertyValueFactory("hash"))
+        col4.setCellFactory { column ->
             object : TextFieldTableCell<MemPoolEntry, Sha256Hash>() {
                 init {
                     setOnMouseClicked { ev ->
                         if (ev.getClickCount() == 2)
-                            app.getHostServices().showDocument("https://blockchain.info/tx/${getText()}")
+                            app.getHostServices().showDocument("https://tradeblock.com/blockchain/tx/${getText()}")
                     }
                 }
             }
@@ -110,6 +132,7 @@ class App : Application() {
 
     var controller: UIController by Delegates.notNull()
     val ctx = Context(MainNetParams.get())
+    var store: MemoryBlockStore by Delegates.notNull()
     var pg: PeerGroup by Delegates.notNull()
 
     val uiState = UIThreadBox(object {
@@ -120,7 +143,13 @@ class App : Application() {
 
     // Input values we haven't found yet. When every entry in inputValues is found, we can calculate the
     // fee and insert it into the mempool list.
-    data class PartialFeeData(val totalOut: Long, val inputValues: LongArray, val forTx: MemPoolEntry, val mempoolIdx: Int)
+    data class PartialFeeData(
+            val totalOut: Long,
+            val inputValues: LongArray,    // -1 if unknown
+            val inputHeights: LongArray,   // 0 if unknown
+            val forTx: MemPoolEntry,
+            val mempoolIdx: Int
+    )
     data class AwaitingInput(val index: Int, val pfd: PartialFeeData, var utxoQueryDone: Boolean = false)
 
     // Put in a box just in case we want to shift calculations off the UI thread.
@@ -158,7 +187,7 @@ class App : Application() {
             Context.propagate(ctx)
             val params = ctx.getParams()
             val now = Instant.now().getEpochSecond()
-            val store = MemoryBlockStore(params)
+            store = MemoryBlockStore(params)
             CheckpointManager.checkpoint(params, CheckpointManager.openStream(params), store, now)
 
             val blockchain = BlockChain(ctx, store)
@@ -177,9 +206,8 @@ class App : Application() {
         }.unwrap() success {
             val peer = it[0]
 
-            // After waiting 5 seconds to give us time to fetch the mempool and fully resolve from that,
-            // kick off UTXO lookups every three seconds, if needed (to avoid putting excessive work on
-            // the remote peer).
+            // Wait 5 seconds to give us time to download the full mempool and resolve internally before starting
+            // to do block chain UTXO lookups.
             Timer().schedule(5000) {
                 doUTXOLookups()
                 state.useWith { lookupImmediately = true }
@@ -191,16 +219,8 @@ class App : Application() {
                     processTX(t)
                 }
 
-                override fun onPeerDisconnected(p: Peer, peerCount: Int) {
-                    //if (peer == p) {
-                     //   p.removeEventListener(this)
-                     //   pg.waitForPeers(1).get()[0].addEventListener(this)
-                   // }
-                }
-
                 override fun onBlocksDownloaded(peer: Peer, block: Block?, filteredBlock: FilteredBlock?, blocksLeft: Int) {
-                    // TODO: Move this to an in-memory block store handler so we ignore orphan blocks and do reorgs properly.
-                    val txns = block!!.getTransactions().toSet()
+                    val txns = block!!.getTransactions().toSet().filterNot { it.isCoinBase() }
                     val size = block.getMessageSize() - Block.HEADER_SIZE - VarInt.sizeOf(txns.size().toLong())
                     state.useWith {
                         txns map { it.getHash() } forEach { mapMemPool.remove(it) }
@@ -247,16 +267,28 @@ class App : Application() {
             if (!inputValues.contains(-1)) {
                 val totalInValue = inputValues.sum()
                 uiState.useWith {
-                    mempool add MemPoolEntry(totalInValue - totalOutValue, msgSize, tx.getHash())
+                    mempool add MemPoolEntry(
+                            fee = totalInValue - totalOutValue,
+                            msgSize = msgSize,
+                            msgSizeForPriority = tx.getMessageSizeForPriorityCalc(),
+                            hash = tx.getHash(),
+                            priority = 0
+                    )
                 }
             } else {
                 // Otherwise, we don't have enough info yet. Register a PartialFeeData structure for later.
-                val entry = MemPoolEntry(-1, msgSize, tx.getHash())
+                val entry = MemPoolEntry(
+                        fee = -1,
+                        msgSize = msgSize,
+                        msgSizeForPriority = tx.getMessageSizeForPriorityCalc(),
+                        priority = -1,
+                        hash = tx.getHash()
+                )
                 val uiListIndex = uiState.getWith {
                     mempool add entry
                     mempool.size() - 1
                 }
-                val pfd = PartialFeeData(totalOutValue, inputValues, entry, uiListIndex)
+                val pfd = PartialFeeData(totalOutValue, inputValues, LongArray(inputValues.size()), entry, uiListIndex)
                 val toLookup = arrayListOf<TransactionOutPoint>()
                 for (i in inputValues.indices) {
                     if (inputValues[i] != -1L) continue
@@ -276,18 +308,27 @@ class App : Application() {
         }
     }
 
-    fun maybeFinishWithOutput(op: TransactionOutPoint, value: Long) {
+    fun maybeFinishWithOutput(op: TransactionOutPoint, value: Long, height: Long = -1L) {
         state.useWith {
             val awaiting = mapAwaiting[op] ?: return@useWith
-            awaiting.pfd.inputValues[awaiting.index] = value
-            if (!awaiting.pfd.inputValues.contains(-1L)) {
+            val pfd = awaiting.pfd
+
+            pfd.inputValues[awaiting.index] = value
+            if (height != -1L)
+                pfd.inputHeights[awaiting.index] = height
+
+            if (!pfd.inputValues.contains(-1L)) {
                 // All inputs are now resolved, so we're done with this TX. Update the table.
-                val totalIn = awaiting.pfd.inputValues.sum()
-                val fee = totalIn - awaiting.pfd.totalOut
-                check(fee >= 0) { "fee = $totalIn - ${awaiting.pfd.totalOut} = $fee  ::  " + awaiting.pfd.inputValues.joinToString(",")}
+                val totalIn = pfd.inputValues.sum()
+                val fee = totalIn - pfd.totalOut
+                val confs = pfd.inputHeights.map { if (it == 0L) 0 else store.getChainHead().getHeight() - it }
+                val inputsPriority = pfd.inputValues.zip(confs).map { pair -> pair.first * pair.second }.sum()
+                val priority = inputsPriority / pfd.forTx.msgSizeForPriority
+                check(fee >= 0) { "fee = $totalIn - ${pfd.totalOut} = $fee  ::  " + pfd.inputValues.joinToString(",")}
+                check(priority >= 0) { "priority=$priority" }
                 mapAwaiting.remove(op)
                 uiState.useWith {
-                    mempool[awaiting.pfd.mempoolIdx] = awaiting.pfd.forTx.copy(fee = fee)
+                    mempool[pfd.mempoolIdx] = pfd.forTx.copy(fee = fee, priority = inputsPriority)
                 }
             }
         }
@@ -308,7 +349,7 @@ class App : Application() {
         }
     }
 
-    private fun doUTXOLookup(query: List<TransactionOutPoint>) {
+    fun doUTXOLookup(query: List<TransactionOutPoint>) {
         val promise = pg.getDownloadPeer().getUTXOs(query, false).toPromise()
 
         promise success { results ->
@@ -316,7 +357,8 @@ class App : Application() {
             var cursor = 0
             for (i in query.indices) {
                 if (bitset.get(i)) {
-                    maybeFinishWithOutput(query[i], results.getOutputs()[cursor].getValue().value)
+                    val height = results.getHeights()[cursor]
+                    maybeFinishWithOutput(query[i], results.getOutputs()[cursor].getValue().value, if (height != 0x7FFFFFFFL) height else -1)
                     cursor++
                 }
             }
