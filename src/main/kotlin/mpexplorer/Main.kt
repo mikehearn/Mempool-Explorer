@@ -13,10 +13,9 @@ import javafx.event.ActionEvent
 import javafx.fxml.FXML
 import javafx.fxml.FXMLLoader
 import javafx.scene.Scene
-import javafx.scene.control.Label
-import javafx.scene.control.Slider
-import javafx.scene.control.TableView
+import javafx.scene.control.*
 import javafx.scene.control.cell.TextFieldTableCell
+import javafx.scene.web.WebView
 import javafx.stage.Stage
 import nl.komponents.kovenant.Kovenant
 import nl.komponents.kovenant.async
@@ -30,7 +29,6 @@ import org.bitcoinj.utils.BtcFormat
 import org.bitcoinj.utils.Threading
 import org.slf4j.LoggerFactory
 import java.time.Instant
-import java.util.ArrayList
 import java.util.Arrays
 import java.util.BitSet
 import java.util.Timer
@@ -38,6 +36,9 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executor
 import kotlin.concurrent.schedule
 import kotlin.properties.Delegates
+
+// TODO: Show histogram of cluster score selections. We're looking to maximize selection of non-spammy txns
+
 
 data class TxShapeStats(
         val nInputs: Int, val nOutputs: Int,
@@ -129,6 +130,7 @@ class UIController {
     FXML public var priorityAreaSizeLabel: Label = later()
 
     FXML public var txShapeLabel: Label = later()
+    FXML public var tabPane: TabPane = later()
 
     var blockMaker: BlockMaker = later()
 
@@ -165,6 +167,8 @@ class UIController {
         blockSizeSlider.valueProperty().addListener { o -> update() }
         priorityAreaSizeSlider.valueProperty().addListener { o -> update() }
 
+        blockSizeSlider.setMax(8 * 1000 * 1024.0)   // 8mb blocks
+
         blockMakerTable.getSelectionModel().selectedItemProperty().addListener { value, old, new ->
             txShapeLabel.setText(new.shape.toString())
         }
@@ -177,6 +181,14 @@ class UIController {
 
     private fun update() {
         blockMaker.calculate(blockSizeSlider.getValue().toInt(), priorityAreaSizeSlider.getValue().toInt())
+    }
+
+    fun openWebPage(url: String, title: String) {
+        val tab = Tab(title)
+        val webView = WebView()
+        webView.getEngine().load(url)
+        tab.setContent(webView)
+        tabPane.getTabs().add(tab)
     }
 }
 
@@ -405,7 +417,7 @@ class App : Application() {
                 val inputsPriority = pfd.inputValues.zip(confs).map { pair -> pair.first * pair.second }.sum()
                 val priority = inputsPriority / pfd.forTx.msgSizeForPriority
                 check(fee >= 0) { "fee = $totalIn - ${pfd.totalOut} = $fee  ::  " + pfd.inputValues.joinToString(",")}
-                check(priority >= 0) { "priority=$priority" }
+                check(priority >= 0) { "priority=$priority: $inputsPriority" }
                 mapAwaiting.remove(op)
                 uiState.useWith {
                     mempool[pfd.mempoolIdx] = pfd.forTx.copy(fee = fee, priority = inputsPriority, shape = pfd.forTx.shape.withInputs(pfd.inputValues))

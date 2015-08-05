@@ -27,27 +27,7 @@ fun configureTable(table: TableView<MemPoolEntry>, app: App) {
     val mbtc = BtcFormat.getMilliInstance()
     val ubtc = BtcFormat.getMicroInstance()
 
-    // Make row redder the more the inputs/outputs look like DoS/spam.
-    table.setRowFactory {
-        object : TableRow<MemPoolEntry>() {
-            override fun updateItem(item: MemPoolEntry?, empty: Boolean) {
-                super.updateItem(item, empty)
-                getStyleClass().removeAll("cluster1", "cluster2", "cluster3", "cluster4", "cluster5")
-                if (item != null && item.shape.clusterScore > 0) {
-                    //var color = Color.WHITE
-                    var x = item.shape.clusterScore
-                    val i = 40
-                    var cluster = 0
-                    while (x > i) {
-                        x -= i
-                        if (cluster <= 5)
-                            cluster++
-                    }
-                    getStyleClass().add(0, "cluster$cluster")
-                }
-            }
-        }
-    }
+    setupRowClusterHighlighting(table)
 
     var c = 0
 
@@ -96,7 +76,30 @@ fun configureTable(table: TableView<MemPoolEntry>, app: App) {
             init {
                 setOnMouseClicked { ev ->
                     if (ev.getClickCount() == 2)
-                        app.getHostServices().showDocument("https://tradeblock.com/blockchain/tx/${getText()}")
+                        app.controller.openWebPage("https://tradeblock.com/blockchain/tx/${getText()}", getText())
+                }
+            }
+        }
+    }
+}
+
+// Make row redder the more the inputs/outputs look like DoS/spam.
+private fun setupRowClusterHighlighting(table: TableView<MemPoolEntry>) {
+    table.setRowFactory {
+        object : TableRow<MemPoolEntry>() {
+            override fun updateItem(item: MemPoolEntry?, empty: Boolean) {
+                super.updateItem(item, empty)
+                getStyleClass().removeAll("cluster1", "cluster2", "cluster3", "cluster4", "cluster5")
+                if (item != null && item.shape.clusterScore > 0) {
+                    var x = item.shape.clusterScore
+                    val i = 40
+                    var cluster = 0
+                    while (x > i) {
+                        x -= i
+                        if (cluster <= 5)
+                            cluster++
+                    }
+                    getStyleClass().add(0, "cluster$cluster")
                 }
             }
         }
