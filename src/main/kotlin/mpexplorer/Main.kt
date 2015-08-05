@@ -14,7 +14,6 @@ import javafx.fxml.FXML
 import javafx.fxml.FXMLLoader
 import javafx.scene.Scene
 import javafx.scene.control.*
-import javafx.scene.control.cell.TextFieldTableCell
 import javafx.scene.web.WebView
 import javafx.stage.Stage
 import nl.komponents.kovenant.Kovenant
@@ -25,7 +24,6 @@ import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.script.Script
 import org.bitcoinj.store.MemoryBlockStore
 import org.bitcoinj.utils.BriefLogFormatter
-import org.bitcoinj.utils.BtcFormat
 import org.bitcoinj.utils.Threading
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -34,12 +32,14 @@ import java.util.BitSet
 import java.util.Timer
 import java.util.concurrent.Callable
 import java.util.concurrent.Executor
+import java.util.logging.ConsoleHandler
+import java.util.logging.Level
+import java.util.logging.Logger
 import kotlin.concurrent.schedule
-import kotlin.properties.Delegates
 
 // TODO: Show histogram of cluster score selections. We're looking to maximize selection of non-spammy txns
 
-
+/** Records statistics used for cluster calculation. May be prepared before inputs are ready and then updated later. */
 data class TxShapeStats(
         val nInputs: Int, val nOutputs: Int,
         val identicalInputValues: Int, val identicalOutputValues: Int,
@@ -61,6 +61,7 @@ data class TxShapeStats(
         get() = identicalInputValues + identicalOutputScripts + identicalOutputValues
 }
 
+/** Extension function that generates shape stats from the data held only in the transaction itself */
 fun Transaction.calcShape(): TxShapeStats {
     // How many times do the same values appear?
     check(getOutputs().isNotEmpty())
@@ -86,13 +87,16 @@ fun Transaction.calcShape(): TxShapeStats {
     )
 }
 
-// Given a sorted list, figures out how many times the values repeat, e.g.
-// [1, 1, 2, 3, 3, 3] -> [2, 2, 1, 3, 3, 3]
+/** Given a sorted list, figures out how many times the values repeat, e.g. [1, 1, 2, 3, 3, 3] -> [2, 2, 1, 3, 3, 3] */
 public fun calcRepetitions(values: LongArray): List<Int> {
     val counts = values.groupBy { it }
     return values.map { counts[it]!!.size() }
 }
 
+/**
+ * Holds entry an entry in the memory pool derived from tx data and fetched inputs.
+ * Doesn't store the whole transaction as we don't need it all.
+ */
 data class MemPoolEntry(
         val fee: Long,
         val msgSize: Int,
@@ -105,18 +109,7 @@ data class MemPoolEntry(
     val feePerByte: Long get() = if (fee == -1L) -1L else fee / msgSize
 }
 
-class FeeColumn(val formatter: BtcFormat) : TextFieldTableCell<MemPoolEntry, Long>() {
-    override fun updateItem(item: Long?, empty: Boolean) {
-        super.updateItem(item, empty)
-        if (empty)
-            setText("")
-        else if (item!! == -1L)
-            setText("•")
-        else
-            setText(formatter.format(Coin.valueOf(item)))
-    }
-}
-
+/** Class that manages the UI. Fields marked with FXML are injected from the UI layout language. */
 class UIController {
     FXML public var mempoolTable: TableView<MemPoolEntry> = later()
     FXML public var blockMakerTable: TableView<MemPoolEntry> = later()
@@ -192,13 +185,14 @@ class UIController {
     }
 }
 
+/** Main app logic for downloading txns and resolving the inputs using getutxo */
 class App : Application() {
     val log = LoggerFactory.getLogger(javaClass<App>())
 
-    var controller: UIController by Delegates.notNull()
-    val ctx = Context(MainNetParams.get())
-    var store: MemoryBlockStore by Delegates.notNull()
-    var pg: PeerGroup by Delegates.notNull()
+    val bitcoinj = Context(MainNetParams.get())
+    var controller: UIController = later()
+    var store: MemoryBlockStore = later()
+    var pg: PeerGroup = later()
 
     val uiState = UIThreadBox(object {
         val mempool = FXCollections.observableArrayList<MemPoolEntry>()
@@ -210,8 +204,8 @@ class App : Application() {
     // fee and insert it into the mempool list.
     data class PartialFeeData(
             val totalOut: Long,
-            val inputValues: LongArray,    // -1 if unknown
-            val inputHeights: LongArray,   // 0 if unknown
+            val inputValues: LongArray,    // one entry per input, -1 if still unknown
+            val inputHeights: LongArray,   // one entry per input, 0 if unknown
             val forTx: MemPoolEntry,
             val mempoolIdx: Int
     )
@@ -228,6 +222,11 @@ class App : Application() {
     override fun start(stage: Stage) {
         BriefLogFormatter.init()
 
+//        Logger.getLogger("").getHandlers()[0].setLevel(Level.ALL)
+//        Logger.getLogger("").setLevel(Level.OFF)
+//        Logger.getLogger("mpexplorer").setLevel(Level.ALL)
+//        Logger.getLogger("org.bitcoinj.core").setLevel(Level.ALL)
+
         val loader = FXMLLoader(javaClass<App>().getResource("main.fxml"))
         val scene = Scene(loader.load())
         scene.getStylesheets().add(javaClass<App>().getResource("main.css").toString())
@@ -238,11 +237,10 @@ class App : Application() {
         stage.setMaximized(true)
         stage.show()
 
-        // Make async run callbacks on the UI thread by default.
+        // Make callbacks run on the UI thread by default.
         Kovenant.context {
             callbackContext.dispatcher = JFXDispatcher()
         }
-
         Threading.USER_THREAD = Executor {
             Platform.runLater(it)
         }
@@ -252,15 +250,17 @@ class App : Application() {
 
     private fun startMemPoolDownload() {
         async {
-            Context.propagate(ctx)
-            val params = ctx.getParams()
+            Context.propagate(bitcoinj)
+            val params = bitcoinj.getParams()
             val now = Instant.now().getEpochSecond()
             store = MemoryBlockStore(params)
             CheckpointManager.checkpoint(params, CheckpointManager.openStream(params), store, now)
 
-            val blockchain = BlockChain(ctx, store)
-            pg = PeerGroup(ctx, blockchain)
+            val blockchain = BlockChain(bitcoinj, store)
+            pg = PeerGroup(bitcoinj, blockchain)
 
+            // Ensure that when we see transactions in a block, we update our tracking. Entries stay in our "mempool"
+            // structures forever but with an updated height, so we can easily exclude them when we want.
             blockchain.addListener(object : AbstractBlockChainListener() {
                 var sizeOfLastBlock: Long = 0L
                 var numTxns: Int = 0
@@ -292,9 +292,10 @@ class App : Application() {
                 }
             })
 
+            // Make it use Cartographer seeds later, when XT 0.11 is rolled out.
             pg.addAddress(java.net.InetAddress.getByName("plan99.net"))
             pg.setUseLocalhostPeerWhenPossible(false)
-
+            pg.setDownloadTxDependencies(false)
             pg.setFastCatchupTimeSecs(now)
             pg.setUserAgent("Mempool Explorer", "1.0")
             pg.start()
@@ -302,7 +303,9 @@ class App : Application() {
             pg.startBlockChainDownload(tracker)
             tracker.await()
             pg.waitForPeers(1).toPromise()
+            // Free up the thread we're on here ....
         }.unwrap() success {
+            // And we're back.
             val peer = it[0]
 
             // Wait 5 seconds to give us time to download the full mempool and resolve internally before starting
@@ -319,19 +322,24 @@ class App : Application() {
                 }
             })
             peer.sendMessage(MemoryPoolMessage())
+            peer.ping().toPromise() success {
+                doInitialUTXOLookups()
+            }
         }
     }
 
     private fun processTX(tx: Transaction) {
         val msgSize = tx.getMessageSize()
 
-        uiState.useWith {
-            mempoolBytes += msgSize.toLong()
-        }
-
         state.useWith a@ {
             if (mapMemPool containsKey tx.getHash())
                 return@a
+
+            uiState.useWith {
+                mempoolBytes += msgSize.toLong()
+            }
+
+            mapMemPool[tx.getHash()] = tx
 
             // Calculate the total output values
             val totalOutValue = tx.getOutputs().map { it.getValue().value }.sum()
@@ -344,7 +352,7 @@ class App : Application() {
                 val input = inputs[i]
                 val op = input.getOutpoint()
                 val connectIndex = op.getIndex()
-                val v = mapMemPool[tx.getHash()]?.getOutput(connectIndex)?.getValue()?.value ?: -1
+                val v = mapMemPool[op.getHash()]?.getOutput(connectIndex)?.getValue()?.value ?: -1
                 inputValues[i] = v
             }
 
@@ -394,8 +402,6 @@ class App : Application() {
             // For each output in this transaction, see if we can connect it to a waiting input and satisfy any
             // partial fee datas. If we can, see if we're done for this tx already.
             tx.getOutputs().forEach { maybeFinishWithOutput(it.getOutPointFor(), it.getValue().value) }
-
-            mapMemPool[tx.getHash()] = tx
         }
     }
 
@@ -426,9 +432,10 @@ class App : Application() {
         }
     }
 
-    fun doUTXOLookups() {
+    fun doInitialUTXOLookups() {
         // Do a lookup for each awaiting output.
         state.useWith {
+            lookupImmediately = true
             // Limit the size of the query to avoid hitting the send buffer size on the other side.
             while (true) {
                 val chunk = mapAwaiting.entrySet().filterNot { it.value.utxoQueryDone }.take(5000)
@@ -442,6 +449,9 @@ class App : Application() {
     }
 
     fun doUTXOLookup(query: List<TransactionOutPoint>) {
+        // false here means: don't query utxos created only in the mempool. Otherwise, we'd not be able to query any
+        // block chain outputs that were spent by the mempool. However, this means we MUST have full visibility into
+        // every tx that is broadcast. Otherwise stuff won't show up.
         val promise = pg.getDownloadPeer().getUTXOs(query, false).toPromise()
 
         promise success { results ->

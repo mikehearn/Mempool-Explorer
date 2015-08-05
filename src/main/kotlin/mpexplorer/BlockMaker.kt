@@ -19,7 +19,7 @@ class BlockMaker(val mempool: ObservableList<MemPoolEntry>) {
 
     fun makeBlock(maxSize: Int, maxPrioSize: Int = maxSize / 20): ProposedBlock {
         // TODO: Consider making this code async
-        var entries = mempool.filterNot { it.fee == -1L }.toArrayList()
+        var entries = mempool.filterNot { it.height > 0 || it.fee == -1L }.toArrayList()
         val origSize = entries.size()
         val selected = linkedListOf<MemPoolEntry>()
         var bytesSelected = 0

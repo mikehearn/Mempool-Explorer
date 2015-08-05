@@ -10,9 +10,7 @@ import javafx.scene.control.TableRow
 import javafx.scene.control.TableView
 import javafx.scene.control.cell.PropertyValueFactory
 import javafx.scene.control.cell.TextFieldTableCell
-import javafx.scene.layout.Background
-import javafx.scene.layout.BackgroundFill
-import javafx.scene.paint.Color
+import org.bitcoinj.core.Coin
 import org.bitcoinj.core.Sha256Hash
 import org.bitcoinj.utils.BtcFormat
 
@@ -20,6 +18,18 @@ fun <T> wireSorted(table: TableView<T>, items: ObservableList<T>) {
     val sl = SortedList(items)
     sl.comparatorProperty() bind table.comparatorProperty()
     table.setItems(sl)
+}
+
+class FeeColumn(val formatter: BtcFormat) : TextFieldTableCell<MemPoolEntry, Long>() {
+    override fun updateItem(item: Long?, empty: Boolean) {
+        super.updateItem(item, empty)
+        if (empty)
+            setText("")
+        else if (item!! == -1L)
+            setText("•")
+        else
+            setText(formatter.format(Coin.valueOf(item)))
+    }
 }
 
 suppress("UNCHECKED_CAST")
