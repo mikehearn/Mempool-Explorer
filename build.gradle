@@ -1,0 +1,35 @@
+apply plugin: 'java'
+apply plugin: 'maven'
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:0.12.1230'
+    }
+}
+
+apply plugin: 'kotlin'
+
+group = 'com.vinumeris'
+version = '1.0-SNAPSHOT'
+
+sourceSets {
+    main.kotlin.srcDirs += 'src/main/kotlin'
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+dependencies {
+    compile group: 'org.jetbrains.kotlin', name: 'kotlin-stdlib', version:'0.12.1230'
+    compile group: 'org.bitcoinj', name: 'bitcoinj-core', version:'0.14-SNAPSHOT'
+    compile group: 'org.slf4j', name: 'slf4j-jdk14', version:'1.7.10'
+    compile group: 'nl.komponents.kovenant', name: 'kovenant-jvm', version:'[2.3.0,2.4.0)'
+    compile group: 'nl.komponents.kovenant', name: 'kovenant-functional', version:'[2.3.0,2.4.0)'
+    compile group: 'com.google.guava', name: 'guava', version:'16.0.1'
+    compile group: 'com.github.mfornos', name: 'humanize-slim', version:'1.2.2'
+    compile group: 'junit', name: 'junit', version:'4.12'
+}
