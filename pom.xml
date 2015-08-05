@@ -83,9 +83,15 @@
             <artifactId>humanize-slim</artifactId>
             <version>1.2.2</version>
         </dependency>
+
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.12</version>
+        </dependency>
     </dependencies>
 
     <properties>
-        <kotlin.version>0.12.613</kotlin.version>
+        <kotlin.version>0.12.1230</kotlin.version>
     </properties>
 </project>

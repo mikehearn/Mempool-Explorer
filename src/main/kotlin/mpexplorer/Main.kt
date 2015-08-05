@@ -15,7 +15,6 @@ import javafx.fxml.FXMLLoader
 import javafx.scene.Scene
 import javafx.scene.control.Label
 import javafx.scene.control.Slider
-import javafx.scene.control.TableColumn
 import javafx.scene.control.TableView
 import javafx.scene.control.cell.TextFieldTableCell
 import javafx.stage.Stage
@@ -24,12 +23,15 @@ import nl.komponents.kovenant.async
 import nl.komponents.kovenant.functional.unwrap
 import org.bitcoinj.core.*
 import org.bitcoinj.params.MainNetParams
+import org.bitcoinj.script.Script
 import org.bitcoinj.store.MemoryBlockStore
 import org.bitcoinj.utils.BriefLogFormatter
 import org.bitcoinj.utils.BtcFormat
 import org.bitcoinj.utils.Threading
 import org.slf4j.LoggerFactory
 import java.time.Instant
+import java.util.ArrayList
+import java.util.Arrays
 import java.util.BitSet
 import java.util.Timer
 import java.util.concurrent.Callable
@@ -37,13 +39,67 @@ import java.util.concurrent.Executor
 import kotlin.concurrent.schedule
 import kotlin.properties.Delegates
 
+data class TxShapeStats(
+        val nInputs: Int, val nOutputs: Int,
+        val identicalInputValues: Int, val identicalOutputValues: Int,
+        val identicalOutputScripts: Int,
+        val highestFrequencyOutputValue: Coin?,
+        val highestFrequencyOutputScript: Script?
+) {
+    fun withInputs(inputValues_: LongArray): TxShapeStats {
+        val inputValues = inputValues_.filterNot { it == -1L }.toLongArray()
+        if (inputValues.isEmpty())
+            return this
+        inputValues.sort()
+        val inputReps = calcRepetitions(inputValues)
+        return copy(identicalInputValues = inputReps.distinct().map { if (it == 1) 0 else it }.sum())
+    }
+
+    // Use a brain dead cluster score for now.
+    val clusterScore: Int
+        get() = identicalInputValues + identicalOutputScripts + identicalOutputValues
+}
+
+fun Transaction.calcShape(): TxShapeStats {
+    // How many times do the same values appear?
+    check(getOutputs().isNotEmpty())
+    check(getInputs().isNotEmpty())
+    val outputValues = getOutputs().map { it.getValue() }.sort().map { it.value }.toLongArray()
+    val outputValueReps = calcRepetitions(outputValues)
+
+    val outputScripts = getOutputs().map { Arrays.hashCode(it.getScriptPubKey().getProgram()).toLong() }.toLongArray()
+    val outputScriptReps = calcRepetitions(outputScripts)
+
+    val allOutputsDifferent = outputValueReps.count { it == 1 } == outputValueReps.size()
+    val highestFreqOutputVal = if (allOutputsDifferent) null else Coin.valueOf(outputValues[outputValueReps.indexOf(outputValueReps.max())])
+    val highestFreqOutputScript = if (outputScriptReps.isEmpty()) null else getOutput(outputScriptReps.indexOf(outputScriptReps.max()).toLong()).getScriptPubKey()
+
+    return TxShapeStats(
+            nInputs = getInputs().size(),
+            nOutputs = getOutputs().size(),
+            identicalOutputValues = outputValueReps.distinct().map { if (it == 1) 0 else it }.sum(),
+            identicalOutputScripts = outputScriptReps.distinct().map { if (it == 1) 0 else it }.sum(),
+            highestFrequencyOutputValue = highestFreqOutputVal,
+            highestFrequencyOutputScript = highestFreqOutputScript,
+            identicalInputValues = 0
+    )
+}
+
+// Given a sorted list, figures out how many times the values repeat, e.g.
+// [1, 1, 2, 3, 3, 3] -> [2, 2, 1, 3, 3, 3]
+public fun calcRepetitions(values: LongArray): List<Int> {
+    val counts = values.groupBy { it }
+    return values.map { counts[it]!!.size() }
+}
+
 data class MemPoolEntry(
         val fee: Long,
         val msgSize: Int,
         val msgSizeForPriority: Int,
         val priority: Long,
         val hash: Sha256Hash,
-        val height: Int = 0
+        val height: Int = 0,
+        val shape: TxShapeStats
 ) {
     val feePerByte: Long get() = if (fee == -1L) -1L else fee / msgSize
 }
@@ -71,6 +127,8 @@ class UIController {
     FXML public var priorityAreaSizeSlider: Slider = later()
     FXML public var blockSizeLabel: Label = later()
     FXML public var priorityAreaSizeLabel: Label = later()
+
+    FXML public var txShapeLabel: Label = later()
 
     var blockMaker: BlockMaker = later()
 
@@ -106,6 +164,10 @@ class UIController {
         // - Editing either slider results in a recalculation of the block
         blockSizeSlider.valueProperty().addListener { o -> update() }
         priorityAreaSizeSlider.valueProperty().addListener { o -> update() }
+
+        blockMakerTable.getSelectionModel().selectedItemProperty().addListener { value, old, new ->
+            txShapeLabel.setText(new.shape.toString())
+        }
     }
 
     FXML
@@ -156,6 +218,7 @@ class App : Application() {
 
         val loader = FXMLLoader(javaClass<App>().getResource("main.fxml"))
         val scene = Scene(loader.load())
+        scene.getStylesheets().add(javaClass<App>().getResource("main.css").toString())
         controller = loader.getController()
         controller.init(this)
         stage.setScene(scene)
@@ -283,7 +346,8 @@ class App : Application() {
                             msgSize = msgSize,
                             msgSizeForPriority = tx.getMessageSizeForPriorityCalc(),
                             hash = tx.getHash(),
-                            priority = 0
+                            priority = 0,
+                            shape = tx.calcShape().withInputs(inputValues)
                     )
                     mempool add entry
                     mapEntries[tx.getHash()] = mempool.size() - 1
@@ -295,7 +359,8 @@ class App : Application() {
                         msgSize = msgSize,
                         msgSizeForPriority = tx.getMessageSizeForPriorityCalc(),
                         priority = -1,
-                        hash = tx.getHash()
+                        hash = tx.getHash(),
+                        shape = tx.calcShape()   // input data will be filled in later
                 )
                 val uiListIndex = uiState.getWith {
                     mempool add entry
@@ -324,13 +389,14 @@ class App : Application() {
 
     fun maybeFinishWithOutput(op: TransactionOutPoint, value: Long, height: Long = -1L) {
         state.useWith {
-            val awaiting = mapAwaiting[op] ?: return@useWith
-            val pfd = awaiting.pfd
+            val awaiting: AwaitingInput = mapAwaiting[op] ?: return@useWith
+            val pfd: PartialFeeData = awaiting.pfd
 
             pfd.inputValues[awaiting.index] = value
             if (height != -1L)
                 pfd.inputHeights[awaiting.index] = height
 
+            check(pfd.inputValues.isNotEmpty())
             if (!pfd.inputValues.contains(-1L)) {
                 // All inputs are now resolved, so we're done with this TX. Update the table.
                 val totalIn = pfd.inputValues.sum()
@@ -342,7 +408,7 @@ class App : Application() {
                 check(priority >= 0) { "priority=$priority" }
                 mapAwaiting.remove(op)
                 uiState.useWith {
-                    mempool[pfd.mempoolIdx] = pfd.forTx.copy(fee = fee, priority = inputsPriority)
+                    mempool[pfd.mempoolIdx] = pfd.forTx.copy(fee = fee, priority = inputsPriority, shape = pfd.forTx.shape.withInputs(pfd.inputValues))
                 }
             }
         }

@@ -21,6 +21,7 @@
                             <TableColumn editable="false" minWidth="-1.0" prefWidth="100.0" text="Fee" />
                             <TableColumn minWidth="-1.0" prefWidth="100.0" text="Fee / byte" />
                             <TableColumn prefWidth="150.0" text="Priority" />
+                              <TableColumn prefWidth="75.0" text="Score" />
                             <TableColumn editable="false" maxWidth="1.7976931348623157E308" minWidth="500.0" prefWidth="-1.0" text="Hash" />
                           </columns>
                         </TableView>
@@ -58,9 +59,15 @@
                               <TableColumn editable="false" minWidth="-1.0" prefWidth="100.0" text="Fee" />
                               <TableColumn minWidth="-1.0" prefWidth="100.0" text="Fee / byte" />
                               <TableColumn prefWidth="150.0" text="Priority" />
+                              <TableColumn prefWidth="75.0" text="Score" />
                               <TableColumn editable="false" maxWidth="1.7976931348623157E308" minWidth="500.0" prefWidth="-1.0" text="Hash" />
                            </columns>
                         </TableView>
+                        <Label fx:id="txShapeLabel" text="No transaction selected">
+                           <padding>
+                              <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
+                           </padding>
+                        </Label>
                         <GridPane>
                           <columnConstraints>
                             <ColumnConstraints hgrow="SOMETIMES" minWidth="10.0" prefWidth="100.0" />

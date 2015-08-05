@@ -1,0 +1,14 @@
+.cluster1 { -fx-background-color: #ffdddd;  }
+.cluster1:selected { -fx-background-color: -fx-selection-bar; }
+
+.cluster2 { -fx-background-color: #ffcccc; }
+.cluster2:selected { -fx-background-color: -fx-selection-bar; }
+
+.cluster3 { -fx-background-color: #ffbbbb;  }
+.cluster3:selected { -fx-background-color: -fx-selection-bar; }
+
+.cluster4 { -fx-background-color: #ffaaaa; }
+.cluster4:selected { -fx-background-color: -fx-selection-bar; }
+
+.cluster5 { -fx-background-color: #ff7777; }
+.cluster5:selected { -fx-background-color: -fx-selection-bar; }

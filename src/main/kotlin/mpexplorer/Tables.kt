@@ -1,15 +1,18 @@
 package mpexplorer
 
-import javafx.application.Application
 import javafx.beans.property.SimpleIntegerProperty
 import javafx.beans.property.SimpleLongProperty
 import javafx.beans.value.ObservableValue
 import javafx.collections.ObservableList
 import javafx.collections.transformation.SortedList
 import javafx.scene.control.TableColumn
+import javafx.scene.control.TableRow
 import javafx.scene.control.TableView
 import javafx.scene.control.cell.PropertyValueFactory
 import javafx.scene.control.cell.TextFieldTableCell
+import javafx.scene.layout.Background
+import javafx.scene.layout.BackgroundFill
+import javafx.scene.paint.Color
 import org.bitcoinj.core.Sha256Hash
 import org.bitcoinj.utils.BtcFormat
 
@@ -23,6 +26,28 @@ suppress("UNCHECKED_CAST")
 fun configureTable(table: TableView<MemPoolEntry>, app: App) {
     val mbtc = BtcFormat.getMilliInstance()
     val ubtc = BtcFormat.getMicroInstance()
+
+    // Make row redder the more the inputs/outputs look like DoS/spam.
+    table.setRowFactory {
+        object : TableRow<MemPoolEntry>() {
+            override fun updateItem(item: MemPoolEntry?, empty: Boolean) {
+                super.updateItem(item, empty)
+                getStyleClass().removeAll("cluster1", "cluster2", "cluster3", "cluster4", "cluster5")
+                if (item != null && item.shape.clusterScore > 0) {
+                    //var color = Color.WHITE
+                    var x = item.shape.clusterScore
+                    val i = 40
+                    var cluster = 0
+                    while (x > i) {
+                        x -= i
+                        if (cluster <= 5)
+                            cluster++
+                    }
+                    getStyleClass().add(0, "cluster$cluster")
+                }
+            }
+        }
+    }
 
     var c = 0
 
@@ -60,6 +85,9 @@ fun configureTable(table: TableView<MemPoolEntry>, app: App) {
         }
     }
     priority.setStyle("-fx-alignment: CENTER")
+
+    val cscore = table.getColumns()[c++] as TableColumn<MemPoolEntry, Int>
+    cscore.setCellValueFactory { features -> SimpleIntegerProperty(features.getValue().shape.clusterScore) as ObservableValue<Int> }
 
     val hash = table.getColumns()[c] as TableColumn<MemPoolEntry, Sha256Hash>
     hash.setCellValueFactory(PropertyValueFactory("hash"))
