@@ -51,20 +51,6 @@ class UIThreadBox<T>(private val data: T) {
     }
 }
 
-fun <V, E> Promise<Promise<V, E>, E>.unwrap(): Promise<V, E> {
-    val deferred = deferred<V, E>()
-    this.success {
-        it.success {
-           deferred.resolve(it)
-        } fail {
-            deferred.reject(it)
-        }
-    } fail {
-        deferred.reject(it)
-    }
-    return deferred.promise
-}
-
 fun <T> ListenableFuture<T>.toPromise(): Promise<T, Exception> {
     val def = deferred<T, Exception>()
     Futures.addCallback(this, object : FutureCallback<T> {

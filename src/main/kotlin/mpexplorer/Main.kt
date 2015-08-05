@@ -21,6 +21,7 @@ import javafx.scene.control.cell.TextFieldTableCell
 import javafx.stage.Stage
 import nl.komponents.kovenant.Kovenant
 import nl.komponents.kovenant.async
+import nl.komponents.kovenant.functional.unwrap
 import org.bitcoinj.core.*
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.store.MemoryBlockStore
@@ -60,8 +61,6 @@ class FeeColumn(val formatter: BtcFormat) : TextFieldTableCell<MemPoolEntry, Lon
 }
 
 class UIController {
-    val log = LoggerFactory.getLogger(javaClass<UIController>())
-
     FXML public var mempoolTable: TableView<MemPoolEntry> = later()
     FXML public var blockMakerTable: TableView<MemPoolEntry> = later()
     FXML public var numTxnsLabel: Label = later()
@@ -77,20 +76,8 @@ class UIController {
 
     suppress("UNCHECKED_CAST")
     public fun init(app: App) {
-        configureTable(mempoolTable)
-        configureTable(blockMakerTable)
-
-        val hashCol = mempoolTable.getColumns()[5] as TableColumn<MemPoolEntry, Sha256Hash>
-        hashCol.setCellFactory { column ->
-            object : TextFieldTableCell<MemPoolEntry, Sha256Hash>() {
-                init {
-                    setOnMouseClicked { ev ->
-                        if (ev.getClickCount() == 2)
-                            app.getHostServices().showDocument("https://tradeblock.com/blockchain/tx/${getText()}")
-                    }
-                }
-            }
-        }
+        configureTable(mempoolTable, app)
+        configureTable(blockMakerTable, app)
 
         app.uiState.useWith {
             blockMaker = BlockMaker(mempool)
@@ -230,8 +217,8 @@ class App : Application() {
                 }
             })
 
-            //pg.addAddress(InetAddress.getByName("plan99.net"))
-            //pg.setUseLocalhostPeerWhenPossible(false)
+            pg.addAddress(java.net.InetAddress.getByName("plan99.net"))
+            pg.setUseLocalhostPeerWhenPossible(false)
 
             pg.setFastCatchupTimeSecs(now)
             pg.setUserAgent("Mempool Explorer", "1.0")

@@ -1,5 +1,6 @@
 package mpexplorer
 
+import javafx.application.Application
 import javafx.beans.property.SimpleIntegerProperty
 import javafx.beans.property.SimpleLongProperty
 import javafx.beans.value.ObservableValue
@@ -19,7 +20,7 @@ fun <T> wireSorted(table: TableView<T>, items: ObservableList<T>) {
 }
 
 suppress("UNCHECKED_CAST")
-fun configureTable(table: TableView<MemPoolEntry>) {
+fun configureTable(table: TableView<MemPoolEntry>, app: App) {
     val mbtc = BtcFormat.getMilliInstance()
     val ubtc = BtcFormat.getMicroInstance()
 
@@ -62,5 +63,15 @@ fun configureTable(table: TableView<MemPoolEntry>) {
 
     val hash = table.getColumns()[c] as TableColumn<MemPoolEntry, Sha256Hash>
     hash.setCellValueFactory(PropertyValueFactory("hash"))
+    hash.setCellFactory { column ->
+        object : TextFieldTableCell<MemPoolEntry, Sha256Hash>() {
+            init {
+                setOnMouseClicked { ev ->
+                    if (ev.getClickCount() == 2)
+                        app.getHostServices().showDocument("https://tradeblock.com/blockchain/tx/${getText()}")
+                }
+            }
+        }
+    }
 }
 
