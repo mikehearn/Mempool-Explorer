@@ -6,6 +6,7 @@ import javafx.application.Platform
 import javafx.beans.binding.Bindings.createStringBinding
 import javafx.beans.binding.Bindings.format
 import javafx.beans.binding.Bindings.size
+import javafx.beans.property.SimpleDoubleProperty
 import javafx.beans.property.SimpleIntegerProperty
 import javafx.beans.property.SimpleLongProperty
 import javafx.collections.FXCollections
@@ -32,10 +33,7 @@ import java.util.BitSet
 import java.util.Timer
 import java.util.concurrent.Callable
 import java.util.concurrent.Executor
-import java.util.logging.ConsoleHandler
-import java.util.logging.Level
-import java.util.logging.Logger
-import kotlin.concurrent.schedule
+import kotlin.concurrent.scheduleAtFixedRate
 
 // TODO: Show histogram of cluster score selections. We're looking to maximize selection of non-spammy txns
 
@@ -131,7 +129,9 @@ class UIController {
     FXML public var blockSizeLabel: Label = later()
     FXML public var priorityAreaSizeLabel: Label = later()
 
-    FXML public var txShapeLabel: Label = later()
+    FXML public var txShapeLabel1: Label = later()
+    FXML public var txShapeLabel2: Label = later()
+    FXML public var txPerSecLabel: Label = later()
     FXML public var tabPane: TabPane = later()
 
     var blockMaker: BlockMaker = later()
@@ -152,6 +152,10 @@ class UIController {
             mempoolBytesLabel.textProperty() bind format(mempoolBytesLabel.getText(),
                 createStringBinding(Callable { Humanize.binaryPrefix(mempoolBytes.get()) }, mempoolBytes)
             )
+
+            txPerSecLabel.textProperty() bind createStringBinding(Callable {
+                "%.1f transactions per second".format(txnsPerSec.get())
+            }, txnsPerSec)
         }
 
         // Wire up the block maker sliders:
@@ -171,9 +175,16 @@ class UIController {
 
         blockSizeSlider.setMax(8 * 1000 * 1024.0)   // 8mb blocks
 
-        blockMakerTable.getSelectionModel().selectedItemProperty().addListener { value, old, new ->
-            txShapeLabel.setText(new.shape.toString())
+        fun wireShapeLabel(label: Label, table: TableView<MemPoolEntry>) {
+            table.getSelectionModel().selectedItemProperty().addListener { value, old, new ->
+                if (new != null)
+                    label.setText(new.shape.toString())
+                else
+                    label.setText("")
+            }
         }
+        wireShapeLabel(txShapeLabel1, mempoolTable)
+        wireShapeLabel(txShapeLabel2, blockMakerTable)
     }
 
     FXML
@@ -207,6 +218,12 @@ class App : Application() {
         val mempool = FXCollections.observableArrayList<MemPoolEntry>()
         var mempoolBytes = SimpleLongProperty()
         val numTxnsInLastBlock = SimpleIntegerProperty()
+        val txnsPerSec = SimpleDoubleProperty()
+
+        // Simple moving average buffer.
+        var txnsPerSecBuffer = IntArray(4)
+        var txnsPerSecBufCursor = 0
+        var txnsSinceLastTick = 0
     })
 
     // Input values we haven't found yet. When every entry in inputValues is found, we can calculate the
@@ -225,7 +242,7 @@ class App : Application() {
         val mapMemPool = hashMapOf<Sha256Hash, Transaction>()
         val mapEntries = hashMapOf<Sha256Hash, Int>()  // index in mempool array
         val mapAwaiting = hashMapOf<TransactionOutPoint, AwaitingInput>()
-        var lookupImmediately = false
+        var initialDownloadDone = false
     })
 
     override fun start(stage: Stage) {
@@ -327,19 +344,36 @@ class App : Application() {
             peer.ping().toPromise() success {
                 doInitialUTXOLookups()
             }
+
+            setupTxPerSecCounter()
+        }
+    }
+
+    private fun setupTxPerSecCounter() {
+        // Update the transactions per second counter.
+        Timer(true).scheduleAtFixedRate(2000, 1000) {
+            Platform.runLater {
+                uiState.useWith {
+                    txnsPerSecBuffer[txnsPerSecBufCursor++ mod txnsPerSecBuffer.size()] = txnsSinceLastTick
+                    txnsSinceLastTick = 0
+                    txnsPerSec.set(txnsPerSecBuffer.average())
+                }
+            }
         }
     }
 
     private fun processTX(tx: Transaction) {
         val msgSize = tx.getMessageSize()
 
+        uiState.useWith {
+            mempoolBytes += msgSize.toLong()
+            txnsSinceLastTick++
+        }
+
         state.useWith a@ {
             if (mapMemPool containsKey tx.getHash())
                 return@a
 
-            uiState.useWith {
-                mempoolBytes += msgSize.toLong()
-            }
 
             mapMemPool[tx.getHash()] = tx
 
@@ -397,7 +431,7 @@ class App : Application() {
                     mapAwaiting[op] = AwaitingInput(i, pfd)
                     toLookup add op
                 }
-                if (lookupImmediately)
+                if (initialDownloadDone)
                     doUTXOLookup(toLookup)
             }
 
@@ -437,7 +471,7 @@ class App : Application() {
     fun doInitialUTXOLookups() {
         // Do a lookup for each awaiting output.
         state.useWith {
-            lookupImmediately = true
+            initialDownloadDone = true
             // Limit the size of the query to avoid hitting the send buffer size on the other side.
             while (true) {
                 val chunk = mapAwaiting.entrySet().filterNot { it.value.utxoQueryDone }.take(5000)

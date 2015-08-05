@@ -39,6 +39,8 @@
                               <Label fx:id="numTxnsLabel" text="\%d unconfirmed transactions" GridPane.columnIndex="1" />
                               <Label fx:id="numTxnsInLastBlockLabel" text="\%d transactions in last block" GridPane.columnIndex="1" GridPane.rowIndex="1" />
                               <Label fx:id="mempoolBytesLabel" text="\%s in mempool" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+                              <Label fx:id="txShapeLabel1" text="No transaction selected" />
+                              <Label fx:id="txPerSecLabel" text="0 transactions per second" GridPane.rowIndex="1" />
                            </children>
                            <padding>
                               <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
@@ -63,7 +65,7 @@
                               <TableColumn editable="false" maxWidth="1.7976931348623157E308" minWidth="500.0" prefWidth="-1.0" text="Hash" />
                            </columns>
                         </TableView>
-                        <Label fx:id="txShapeLabel" text="No transaction selected">
+                        <Label fx:id="txShapeLabel2" text="No transaction selected">
                            <padding>
                               <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
                            </padding>
