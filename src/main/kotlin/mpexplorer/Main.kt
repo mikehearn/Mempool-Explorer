@@ -39,6 +39,8 @@ import kotlin.concurrent.schedule
 
 // TODO: Show histogram of cluster score selections. We're looking to maximize selection of non-spammy txns
 
+val params = MainNetParams.get()
+
 /** Records statistics used for cluster calculation. May be prepared before inputs are ready and then updated later. */
 data class TxShapeStats(
         val nInputs: Int, val nOutputs: Int,
@@ -59,6 +61,13 @@ data class TxShapeStats(
     // Use a brain dead cluster score for now.
     val clusterScore: Int
         get() = identicalInputValues + identicalOutputScripts + identicalOutputValues
+
+    override fun toString(): String =
+            "$nInputs inputs, $nOutputs outputs" +
+            if (identicalInputValues > 0) ", $identicalInputValues identical input values" else "" +
+            if (identicalOutputValues > 0) ", $identicalOutputValues identical output values" else "" +
+            if (identicalOutputScripts > 0) ", $identicalOutputScripts identical output scripts" else "" +
+            if (highestFrequencyOutputScript != null) ", top address ${highestFrequencyOutputScript.getToAddress(params)}" else ""
 }
 
 /** Extension function that generates shape stats from the data held only in the transaction itself */
@@ -189,7 +198,7 @@ class UIController {
 class App : Application() {
     val log = LoggerFactory.getLogger(javaClass<App>())
 
-    val bitcoinj = Context(MainNetParams.get())
+    val bitcoinj = Context(params)
     var controller: UIController = later()
     var store: MemoryBlockStore = later()
     var pg: PeerGroup = later()
@@ -307,13 +316,6 @@ class App : Application() {
         }.unwrap() success {
             // And we're back.
             val peer = it[0]
-
-            // Wait 5 seconds to give us time to download the full mempool and resolve internally before starting
-            // to do block chain UTXO lookups.
-            Timer().schedule(5000) {
-                state.useWith { lookupImmediately = true }
-                doUTXOLookups()
-            }
 
             // Respond to network events:
             peer.addEventListener(object : AbstractPeerEventListener() {
