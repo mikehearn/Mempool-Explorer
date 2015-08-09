@@ -26,7 +26,7 @@ class BlockMaker(val mempool: ObservableList<MemPoolEntry>) {
 
         fun select(max: Int): Int {
             var cursor = 0
-            while (bytesSelected + entries[cursor].msgSize < max && cursor < entries.size()) {
+            while (cursor < entries.size() && bytesSelected + entries[cursor].msgSize < max) {
                 selected add entries[cursor]
                 bytesSelected += entries[cursor].msgSize
                 cursor++
