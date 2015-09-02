@@ -21,7 +21,7 @@ sourceSets {
 
 repositories {
     mavenCentral()
-    mavenLocal()
+    //mavenLocal()
 
     // For bitcoinj snapshot
     maven {
@@ -31,7 +31,7 @@ repositories {
 
 dependencies {
     compile group: 'org.jetbrains.kotlin', name: 'kotlin-stdlib', version:'0.12.1230'
-    compile group: 'org.bitcoinj', name: 'bitcoinj-core', version:'0.14-SNAPSHOT'
+    compile group: 'org.bitcoinj', name: 'bitcoinj-core', version:'0.14-SNAPSHOT', changing: true
     compile group: 'org.slf4j', name: 'slf4j-jdk14', version:'1.7.10'
     compile group: 'nl.komponents.kovenant', name: 'kovenant-jvm', version:'[2.3.0,2.4.0)'
     compile group: 'nl.komponents.kovenant', name: 'kovenant-functional', version:'[2.3.0,2.4.0)'
