@@ -21,6 +21,9 @@ import nl.komponents.kovenant.Kovenant
 import nl.komponents.kovenant.async
 import nl.komponents.kovenant.functional.unwrap
 import org.bitcoinj.core.*
+import org.bitcoinj.core.listeners.AbstractBlockChainListener
+import org.bitcoinj.core.listeners.AbstractPeerEventListener
+import org.bitcoinj.core.listeners.DownloadProgressTracker
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.script.Script
 import org.bitcoinj.store.MemoryBlockStore
