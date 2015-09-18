@@ -17,22 +17,22 @@ import org.bitcoinj.utils.BtcFormat
 fun <T> wireSorted(table: TableView<T>, items: ObservableList<T>) {
     val sl = SortedList(items)
     sl.comparatorProperty() bind table.comparatorProperty()
-    table.setItems(sl)
+    table.items = sl
 }
 
 class FeeColumn(val formatter: BtcFormat) : TextFieldTableCell<MemPoolEntry, Long>() {
     override fun updateItem(item: Long?, empty: Boolean) {
         super.updateItem(item, empty)
         if (empty)
-            setText("")
+            text = ""
         else if (item!! == -1L)
-            setText("•")
+            text = "•"
         else
-            setText(formatter.format(Coin.valueOf(item)))
+            text = formatter.format(Coin.valueOf(item))
     }
 }
 
-suppress("UNCHECKED_CAST")
+@Suppress("UNCHECKED_CAST")
 fun configureTable(table: TableView<MemPoolEntry>, app: App) {
     val mbtc = BtcFormat.getMilliInstance()
     val ubtc = BtcFormat.getMicroInstance()
@@ -41,52 +41,52 @@ fun configureTable(table: TableView<MemPoolEntry>, app: App) {
 
     var c = 0
 
-    val height = table.getColumns()[c++] as TableColumn<MemPoolEntry, Int>
-    height.setCellValueFactory { features -> SimpleIntegerProperty(features.getValue().height) as ObservableValue<Int> }
-    height.setStyle("-fx-alignment: CENTER")
+    val height = table.columns[c++] as TableColumn<MemPoolEntry, Int>
+    height.setCellValueFactory { features -> SimpleIntegerProperty(features.value.height) as ObservableValue<Int> }
+    height.style = "-fx-alignment: CENTER"
 
-    val size = table.getColumns()[c++] as TableColumn<MemPoolEntry, Int>
-    size.setCellValueFactory { features -> SimpleIntegerProperty(features.getValue().msgSize) as ObservableValue<Int> }
-    size.setStyle("-fx-alignment: CENTER")
+    val size = table.columns[c++] as TableColumn<MemPoolEntry, Int>
+    size.setCellValueFactory { features -> SimpleIntegerProperty(features.value.msgSize) as ObservableValue<Int> }
+    size.style = "-fx-alignment: CENTER"
 
-    val fee = table.getColumns()[c++] as TableColumn<MemPoolEntry, Long>
-    fee.setCellValueFactory { features -> SimpleLongProperty(features.getValue().fee) as ObservableValue<Long> }
+    val fee = table.columns[c++] as TableColumn<MemPoolEntry, Long>
+    fee.setCellValueFactory { features -> SimpleLongProperty(features.value.fee) as ObservableValue<Long> }
     fee.setCellFactory { FeeColumn(mbtc) }
-    fee.setStyle("-fx-alignment: CENTER")
+    fee.style = "-fx-alignment: CENTER"
 
-    val feePerByte = table.getColumns()[c++] as TableColumn<MemPoolEntry, Long>
-    feePerByte.setCellValueFactory { features -> SimpleLongProperty(features.getValue().feePerByte) as ObservableValue<Long> }
+    val feePerByte = table.columns[c++] as TableColumn<MemPoolEntry, Long>
+    feePerByte.setCellValueFactory { features -> SimpleLongProperty(features.value.feePerByte) as ObservableValue<Long> }
     feePerByte.setCellFactory { FeeColumn(ubtc) }
-    feePerByte.setStyle("-fx-alignment: CENTER")
+    feePerByte.style = "-fx-alignment: CENTER"
 
-    val priority = table.getColumns()[c++] as TableColumn<MemPoolEntry, Long>
-    priority.setCellValueFactory { features -> SimpleLongProperty(features.getValue().priority) as ObservableValue<Long> }
+    val priority = table.columns[c++] as TableColumn<MemPoolEntry, Long>
+    priority.setCellValueFactory { features -> SimpleLongProperty(features.value.priority) as ObservableValue<Long> }
     priority.setCellFactory { column ->
         object : TextFieldTableCell<MemPoolEntry, Long>() {
             override fun updateItem(item: Long?, empty: Boolean) {
                 super.updateItem(item, empty)
                 if (empty)
-                    setText("")
+                    text = ""
                 else if (item!! == -1L)
-                    setText("•")
+                    text = "•"
                 else
-                    setText(item.toString())
+                    text = item.toString()
             }
         }
     }
-    priority.setStyle("-fx-alignment: CENTER")
+    priority.style = "-fx-alignment: CENTER"
 
-    val cscore = table.getColumns()[c++] as TableColumn<MemPoolEntry, Int>
-    cscore.setCellValueFactory { features -> SimpleIntegerProperty(features.getValue().shape.clusterScore) as ObservableValue<Int> }
+    val cscore = table.columns[c++] as TableColumn<MemPoolEntry, Int>
+    cscore.setCellValueFactory { features -> SimpleIntegerProperty(features.value.shape.clusterScore) as ObservableValue<Int> }
 
-    val hash = table.getColumns()[c] as TableColumn<MemPoolEntry, Sha256Hash>
-    hash.setCellValueFactory(PropertyValueFactory("hash"))
+    val hash = table.columns[c] as TableColumn<MemPoolEntry, Sha256Hash>
+    hash.cellValueFactory = PropertyValueFactory("hash")
     hash.setCellFactory { column ->
         object : TextFieldTableCell<MemPoolEntry, Sha256Hash>() {
             init {
                 setOnMouseClicked { ev ->
-                    if (ev.getClickCount() == 2)
-                        app.controller.openWebPage("https://tradeblock.com/blockchain/tx/${getText()}", getText())
+                    if (ev.clickCount == 2)
+                        app.controller.openWebPage("https://tradeblock.com/blockchain/tx/${text}", text)
                 }
             }
         }
@@ -99,7 +99,7 @@ private fun setupRowClusterHighlighting(table: TableView<MemPoolEntry>) {
         object : TableRow<MemPoolEntry>() {
             override fun updateItem(item: MemPoolEntry?, empty: Boolean) {
                 super.updateItem(item, empty)
-                getStyleClass().removeAll("cluster1", "cluster2", "cluster3", "cluster4", "cluster5")
+                styleClass.removeAll("cluster1", "cluster2", "cluster3", "cluster4", "cluster5")
                 if (item != null && item.shape.clusterScore > 0) {
                     var x = item.shape.clusterScore
                     val i = 40
@@ -109,7 +109,7 @@ private fun setupRowClusterHighlighting(table: TableView<MemPoolEntry>) {
                         if (cluster <= 5)
                             cluster++
                     }
-                    getStyleClass().add(0, "cluster$cluster")
+                    styleClass.add(0, "cluster$cluster")
                 }
             }
         }

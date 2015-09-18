@@ -10,7 +10,7 @@ class ProposedBlock(
 )
 
 class BlockMaker(val mempool: ObservableList<MemPoolEntry>) {
-    val log = LoggerFactory.getLogger(javaClass<BlockMaker>())
+    val log = LoggerFactory.getLogger(BlockMaker::class.java)
     val contents = FXCollections.observableArrayList<MemPoolEntry>()
 
     fun calculate(maxBlockSize: Int, maxPrioSize: Int) {

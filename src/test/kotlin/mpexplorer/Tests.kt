@@ -27,6 +27,6 @@ class Tests {
         val shape = t.calcShape()
         assertEquals(3, shape.identicalOutputScripts)
         assertEquals(2, shape.identicalOutputValues)
-        assertEquals(t.getOutput(0).getScriptPubKey(), shape.highestFrequencyOutputScript)
+        assertEquals(t.getOutput(0).scriptPubKey, shape.highestFrequencyOutputScript)
     }
 }

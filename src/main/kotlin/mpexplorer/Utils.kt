@@ -11,8 +11,6 @@ import nl.komponents.kovenant.deferred
 import org.bitcoinj.core.Coin
 import java.util.concurrent.CompletableFuture
 
-fun later<T>(): T = null as T
-
 class JFXDispatcher : Dispatcher {
     override val stopped: Boolean get() = throw UnsupportedOperationException()
     override val terminated: Boolean get() = throw UnsupportedOperationException()
@@ -27,8 +25,8 @@ class JFXDispatcher : Dispatcher {
 }
 
 class ThreadBox<T>(private val data: T) {
-    synchronized fun use<R>(block: (T) -> R): R = block(data)
-    synchronized fun useWith<R>(block: T.() -> R): R = data.block()
+    @Synchronized fun use<R>(block: (T) -> R): R = block(data)
+    @Synchronized fun useWith<R>(block: T.() -> R): R = data.block()
 }
 
 class UIThreadBox<T>(private val data: T) {
@@ -51,7 +49,7 @@ class UIThreadBox<T>(private val data: T) {
     }
 }
 
-fun <T> ListenableFuture<T>.toPromise(): Promise<T, Exception> {
+fun <T : Any> ListenableFuture<T>.toPromise(): Promise<T, Exception> {
     val def = deferred<T, Exception>()
     Futures.addCallback(this, object : FutureCallback<T> {
         override fun onFailure(t: Throwable) = def.reject(t as Exception)

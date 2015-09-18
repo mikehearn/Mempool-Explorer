@@ -2,11 +2,12 @@ apply plugin: 'java'
 apply plugin: 'maven'
 
 buildscript {
+    ext.kotlin_version = '0.13.1513'
     repositories {
         mavenCentral()
     }
     dependencies {
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:0.12.1230'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
@@ -17,27 +18,29 @@ version = '1.0-SNAPSHOT'
 
 sourceSets {
     main.kotlin.srcDirs += 'src/main/kotlin'
+    main.java.srcDirs += 'src/main/kotlin'
 }
 
 repositories {
     mavenCentral()
-    //mavenLocal()
 
     // For bitcoinj snapshot
     maven {
         url 'http://oss.sonatype.org/content/repositories/snapshots'
     }
+
+    mavenLocal()
 }
 
 dependencies {
-    compile group: 'org.jetbrains.kotlin', name: 'kotlin-stdlib', version:'0.12.1230'
     compile group: 'org.bitcoinj', name: 'bitcoinj-core', version:'0.14-SNAPSHOT', changing: true
     compile group: 'org.slf4j', name: 'slf4j-jdk14', version:'1.7.10'
-    compile group: 'nl.komponents.kovenant', name: 'kovenant-jvm', version:'[2.3.0,2.4.0)'
-    compile group: 'nl.komponents.kovenant', name: 'kovenant-functional', version:'[2.3.0,2.4.0)'
+    compile group: 'nl.komponents.kovenant', name: 'kovenant-jvm', version:'[2.5.0,2.6.0)'
+    compile group: 'nl.komponents.kovenant', name: 'kovenant-functional', version:'[2.5.0,2.6.0)'
     compile group: 'com.google.guava', name: 'guava', version:'16.0.1'
     compile group: 'com.github.mfornos', name: 'humanize-slim', version:'1.2.2'
     compile group: 'junit', name: 'junit', version:'4.12'
+    compile "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
 }
 
 apply plugin: 'application'
