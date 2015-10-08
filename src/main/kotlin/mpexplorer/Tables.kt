@@ -77,7 +77,9 @@ fun configureTable(table: TableView<MemPoolEntry>, app: App) {
     priority.style = "-fx-alignment: CENTER"
 
     val cscore = table.columns[c++] as TableColumn<MemPoolEntry, Int>
-    cscore.setCellValueFactory { features -> SimpleIntegerProperty(features.value.shape.clusterScore) as ObservableValue<Int> }
+    cscore.setCellValueFactory { features ->
+        SimpleIntegerProperty(features.value.shape.clusterScore) as ObservableValue<Int>
+    }
 
     val hash = table.columns[c] as TableColumn<MemPoolEntry, Sha256Hash>
     hash.cellValueFactory = PropertyValueFactory("hash")
