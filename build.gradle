@@ -2,7 +2,7 @@ apply plugin: 'java'
 apply plugin: 'maven'
 
 buildscript {
-    ext.kotlin_version = '0.13.1513'
+    ext.kotlin_version = '0.14.449'
     repositories {
         mavenCentral()
     }
@@ -22,14 +22,14 @@ sourceSets {
 }
 
 repositories {
+    mavenLocal()
+
     mavenCentral()
 
     // For bitcoinj snapshot
     maven {
         url 'http://oss.sonatype.org/content/repositories/snapshots'
     }
-
-    mavenLocal()
 }
 
 dependencies {

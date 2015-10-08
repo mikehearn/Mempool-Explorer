@@ -1,5 +1,6 @@
 package mpexplorer
 
+import com.google.common.io.BaseEncoding
 import humanize.Humanize
 import javafx.application.Application
 import javafx.application.Platform
@@ -16,6 +17,7 @@ import javafx.fxml.FXMLLoader
 import javafx.scene.Scene
 import javafx.scene.control.*
 import javafx.scene.web.WebView
+import javafx.stage.FileChooser
 import javafx.stage.Stage
 import nl.komponents.kovenant.Kovenant
 import nl.komponents.kovenant.async
@@ -136,9 +138,11 @@ class UIController {
     @FXML lateinit var tabPane: TabPane 
 
     lateinit var blockMaker: BlockMaker
+    lateinit var stage: Stage
 
     @Suppress("UNCHECKED_CAST")
     public fun init(app: App) {
+        stage = app.stage
         configureTable(mempoolTable, app)
         configureTable(blockMakerTable, app)
 
@@ -204,6 +208,26 @@ class UIController {
         tab.content = webView
         tabPane.tabs.add(tab)
     }
+
+    @FXML
+    fun onLoadBlock(ev: ActionEvent) {
+        val chooser = FileChooser()
+        chooser.title = "Select block file"
+        val file = chooser.showOpenDialog(stage) ?: return
+        var bytes = file.readBytes()
+        try {
+            bytes = BaseEncoding.base16().decode(bytes.toString(Charsets.UTF_8).toUpperCase().trim())
+        } catch (e: IllegalArgumentException) {
+            // Ignore, assume the file contains raw block bytes instead of a hex string.
+        }
+        try {
+            val block = BitcoinSerializer(params, false).makeBlock(bytes)
+            println(block)
+        } catch(e: ProtocolException) {
+            Alert(Alert.AlertType.ERROR, "Could not parse as block contents: ensure the file is raw bytes or hex").showAndWait()
+        }
+    }
+
 }
 
 /** Main app logic for downloading txns and resolving the inputs using getutxo */
@@ -246,6 +270,8 @@ class App : Application() {
         var initialDownloadDone = false
     })
 
+    lateinit var stage: Stage
+
     override fun start(stage: Stage) {
         BriefLogFormatter.init()
 
@@ -254,6 +280,7 @@ class App : Application() {
 //        Logger.getLogger("mpexplorer").setLevel(Level.ALL)
 //        Logger.getLogger("org.bitcoinj.core").setLevel(Level.ALL)
 
+        this.stage = stage
         val loader = FXMLLoader(App::class.java.getResource("main.fxml"))
         val scene = Scene(loader.load())
         scene.stylesheets.add(App::class.java.getResource("main.css").toString())
@@ -326,10 +353,12 @@ class App : Application() {
             blockchain.addTransactionReceivedListener(listener)
             blockchain.addNewBestBlockListener(listener)
 
-            // Make it use Cartographer seeds later, when XT 0.11 is rolled out.
-            pg.addAddress(java.net.InetAddress.getByName("plan99.net"))
+            // Force connection only to XT nodes that support getutxos. This will make bitcoinj use HTTP/Cartographer
+            // seeds automatically.
+            pg.setRequiredServices(GetUTXOsMessage.SERVICE_FLAGS_REQUIRED)
             pg.useLocalhostPeerWhenPossible = false
             pg.setDownloadTxDependencies(false)
+            pg.maxConnections = 1
             pg.fastCatchupTimeSecs = now
             pg.setUserAgent("Mempool Explorer", "1.0")
             pg.start()

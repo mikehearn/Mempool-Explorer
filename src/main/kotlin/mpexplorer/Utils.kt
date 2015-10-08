@@ -58,7 +58,7 @@ fun <T : Any> ListenableFuture<T>.toPromise(): Promise<T, Exception> {
     return def.promise
 }
 
-fun SimpleLongProperty.plusAssign(l: Long) = this.set(this.get() + l)
-fun SimpleLongProperty.minusAssign(l: Long) = this.set(this.get() - l)
+operator fun SimpleLongProperty.plusAssign(l: Long) = this.set(this.get() + l)
+operator fun SimpleLongProperty.minusAssign(l: Long) = this.set(this.get() - l)
 
-fun Coin.minus(coin: Coin) = this.subtract(coin)
+operator fun Coin.minus(coin: Coin) = this.subtract(coin)

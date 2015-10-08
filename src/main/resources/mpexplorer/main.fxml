@@ -41,6 +41,7 @@
                               <Label fx:id="mempoolBytesLabel" text="\%s in mempool" GridPane.columnIndex="1" GridPane.rowIndex="2" />
                               <Label fx:id="txShapeLabel1" text="No transaction selected" />
                               <Label fx:id="txPerSecLabel" text="0 transactions per second" GridPane.rowIndex="1" />
+                              <Button mnemonicParsing="false" onAction="#onLoadBlock" text="Load block" GridPane.rowIndex="2" />
                            </children>
                            <padding>
                               <Insets bottom="15.0" left="15.0" right="15.0" top="15.0" />
