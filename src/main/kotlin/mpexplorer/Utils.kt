@@ -4,7 +4,10 @@ import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import javafx.application.Platform
+import javafx.beans.property.Property
 import javafx.beans.property.SimpleLongProperty
+import javafx.beans.property.StringProperty
+import javafx.beans.value.ObservableValue
 import nl.komponents.kovenant.Dispatcher
 import nl.komponents.kovenant.Promise
 import nl.komponents.kovenant.deferred
@@ -25,8 +28,8 @@ class JFXDispatcher : Dispatcher {
 }
 
 class ThreadBox<T>(private val data: T) {
-    @Synchronized fun use<R>(block: (T) -> R): R = block(data)
-    @Synchronized fun useWith<R>(block: T.() -> R): R = data.block()
+    @Synchronized fun <R> use(block: (T) -> R): R = block(data)
+    @Synchronized fun <R> useWith(block: T.() -> R): R = data.block()
 }
 
 class UIThreadBox<T>(private val data: T) {
@@ -34,7 +37,7 @@ class UIThreadBox<T>(private val data: T) {
     fun useWith(block: T.() -> Unit): Unit = if (Platform.isFxApplicationThread()) data.block() else Platform.runLater { data.block() }
 
     /** Does a blocking get from the UI thread - danger of deadlock if not used properly! */
-    fun getWith<R>(block: T.() -> R): R {
+    fun <R> getWith(block: T.() -> R): R {
         if (Platform.isFxApplicationThread())
             return data.block()
         val f = CompletableFuture<R>()
@@ -60,5 +63,5 @@ fun <T : Any> ListenableFuture<T>.toPromise(): Promise<T, Exception> {
 
 operator fun SimpleLongProperty.plusAssign(l: Long) = this.set(this.get() + l)
 operator fun SimpleLongProperty.minusAssign(l: Long) = this.set(this.get() - l)
-
 operator fun Coin.minus(coin: Coin) = this.subtract(coin)
+infix fun <T> Property<T>.bind(observable: ObservableValue<out T>) = bind(observable)

@@ -91,13 +91,13 @@ fun Transaction.calcShape(): TxShapeStats {
     val outputScripts = outputs.map { Arrays.hashCode(it.scriptPubKey.program).toLong() }.toLongArray()
     val outputScriptReps = calcRepetitions(outputScripts)
 
-    val allOutputsDifferent = outputValueReps.count { it == 1 } == outputValueReps.size()
-    val highestFreqOutputVal = if (allOutputsDifferent) null else Coin.valueOf(outputValues[outputValueReps.indexOf(outputValueReps.max())])
-    val highestFreqOutputScript = if (outputScriptReps.isEmpty()) null else getOutput(outputScriptReps.indexOf(outputScriptReps.max()).toLong()).scriptPubKey
+    val allOutputsDifferent = outputValueReps.count { it == 1 } == outputValueReps.size
+    val highestFreqOutputVal = if (allOutputsDifferent) null else Coin.valueOf(outputValues[outputValueReps.indexOf(outputValueReps.max()!!)])
+    val highestFreqOutputScript = if (outputScriptReps.isEmpty()) null else getOutput(outputScriptReps.indexOf(outputScriptReps.max()!!).toLong()).scriptPubKey
 
     return TxShapeStats(
-            nInputs = inputs.size(),
-            nOutputs = outputs.size(),
+            nInputs = inputs.size,
+            nOutputs = outputs.size,
             identicalOutputValues = outputValueReps.distinct().map { if (it == 1) 0 else it }.sum(),
             identicalOutputScripts = outputScriptReps.distinct().map { if (it == 1) 0 else it }.sum(),
             highestFrequencyOutputValue = highestFreqOutputVal,
@@ -109,7 +109,7 @@ fun Transaction.calcShape(): TxShapeStats {
 /** Given a sorted list, figures out how many times the values repeat, e.g. [1, 1, 2, 3, 3, 3] -> [2, 2, 1, 3, 3, 3] */
 fun calcRepetitions(values: LongArray): List<Int> {
     val counts = values.groupBy { it }
-    return values.map { counts[it]!!.size() }
+    return values.map { counts[it]!!.size }
 }
 
 /**
@@ -435,7 +435,7 @@ class App : Application() {
         Timer(true).scheduleAtFixedRate(2000, 1000) {
             Platform.runLater {
                 state.useWith {
-                    txnsPerSecBuffer[txnsPerSecBufCursor++ mod txnsPerSecBuffer.size()] = txnsSinceLastTick
+                    txnsPerSecBuffer[txnsPerSecBufCursor++ % txnsPerSecBuffer.size] = txnsSinceLastTick
                     txnsSinceLastTick = 0
                     txnsPerSec.set(txnsPerSecBuffer.average())
 
@@ -457,7 +457,7 @@ class App : Application() {
             txnsSinceLastTick++
         }
         state.useWith a@ {
-            if (mapMemPool containsKey tx.hash)
+            if (mapMemPool.containsKey(tx.hash))
                 return@a
 
             if (txCache[tx.hash.bytes] == null) {
@@ -475,7 +475,7 @@ class App : Application() {
             // For each input in this transaction, see if we can get the value from the output of a known transaction
             // in mapMemPool. If not, register the input as awaiting and give it a fee of -1.
             val inputs = tx.inputs
-            val inputValues = LongArray(inputs.size())
+            val inputValues = LongArray(inputs.size)
             for (i in inputs.indices) {
                 val input = inputs[i]
                 val op = input.outpoint
@@ -496,8 +496,8 @@ class App : Application() {
                         priority = 0,
                         shape = tx.calcShape().withInputs(inputValues)
                 )
-                mempool add entry
-                mapEntries[tx.hash] = mempool.size() - 1
+                mempool.add(entry)
+                mapEntries[tx.hash] = mempool.size - 1
             } else {
                 // Otherwise, we don't have enough info yet. Register a PartialFeeData structure for later.
                 val entry = MemPoolEntry(
@@ -509,16 +509,16 @@ class App : Application() {
                         shape = tx.calcShape()   // input data will be filled in later
                 )
 
-                mempool add entry
-                mapEntries[tx.hash] = mempool.size() - 1
-                val uiListIndex = mempool.size() - 1
-                val pfd = PartialFeeData(totalOutValue, inputValues, LongArray(inputValues.size()), entry, uiListIndex)
+                mempool.add(entry)
+                mapEntries[tx.hash] = mempool.size - 1
+                val uiListIndex = mempool.size - 1
+                val pfd = PartialFeeData(totalOutValue, inputValues, LongArray(inputValues.size), entry, uiListIndex)
                 val toLookup = arrayListOf<TransactionOutPoint>()
                 for (i in inputValues.indices) {
                     if (inputValues[i] != -1L) continue
                     val op = inputs[i].outpoint
                     mapAwaiting[op] = AwaitingInput(i, pfd)
-                    toLookup add op
+                    toLookup.add(op)
                 }
                 if (initialDownloadDone)
                     doUTXOLookup(toLookup)
@@ -561,7 +561,7 @@ class App : Application() {
             initialDownloadDone = true
             // Limit the size of the query to avoid hitting the send buffer size on the other side.
             while (true) {
-                val chunk = mapAwaiting.entrySet().filterNot { it.value.utxoQueryDone }.take(5000)
+                val chunk = mapAwaiting.entries.filterNot { it.value.utxoQueryDone }.take(5000)
                 chunk.forEach { it.value.utxoQueryDone = true }
                 val query = chunk.map { it.key }
                 if (query.isEmpty())
